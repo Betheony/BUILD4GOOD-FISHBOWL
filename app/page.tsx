@@ -1,4 +1,4 @@
-import { VisualizerWorkbench } from "./components/visualizer-workbench";
+import VisualizerWorkbench from "./components/visualizer-workbench";
 
 export default function Home() {
   return (

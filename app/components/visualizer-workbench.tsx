@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 type StructureKind = "array" | "linked-list" | "graph" | "hashmap";
 type BoardPosition = { x: number; y: number };
@@ -53,7 +53,9 @@ type HashBoard = {
 
 type BoardItem = ArrayBoard | LinkedListBoard | GraphBoard | HashBoard;
 type InsertDraft = { kind: StructureKind; count: string; values: string };
-type DragState = { id: string; pointerOffsetX: number; pointerOffsetY: number };
+type DragState =
+  | { kind: "card"; id: string; pointerOffsetX: number; pointerOffsetY: number }
+  | { kind: "pan"; startClientX: number; startClientY: number; startOffsetX: number; startOffsetY: number };
 
 const structureCopy: Record<StructureKind, { title: string; hint: string; helper: string }> = {
   array: {
@@ -219,12 +221,107 @@ export function VisualizerWorkbench() {
   const [history, setHistory] = useState<string[]>(["Whiteboard ready. Insert a structure to start sketching."]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [boardItems, setBoardItems] = useState<BoardItem[]>([
-    createBoardItem("array", { kind: "array", count: "8", values: "3,8,13,21,34,55,89,144" }, { x: 36, y: 52 }),
-    createBoardItem("graph", { kind: "graph", count: "8", values: "0,1,2,3,4,5,6,7" }, { x: 120, y: 340 }),
-    createBoardItem("hashmap", { kind: "hashmap", count: "4", values: "ca:California; ok:Oklahoma; nj:New Jersey; tx:Texas" }, { x: 880, y: 380 }),
+    createBoardItem("array", { kind: "array", count: "8", values: "3,8,13,21,34,55,89,144" }, { x: 120, y: 80 }),
+    createBoardItem("graph", { kind: "graph", count: "8", values: "0,1,2,3,4,5,6,7" }, { x: 200, y: 420 }),
+    createBoardItem("hashmap", { kind: "hashmap", count: "4", values: "ca:California; ok:Oklahoma; nj:New Jersey; tx:Texas" }, { x: 1380, y: 420 }),
   ]);
   const [insertDraft, setInsertDraft] = useState<InsertDraft>({ kind: "array", count: "4", values: "" });
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [undoStack, setUndoStack] = useState<BoardItem[][]>([]);
+  const [redoStack, setRedoStack] = useState<BoardItem[][]>([]);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+
+  // Refs so wheel/keyboard effects capture fresh state without re-registering
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const liveRef = useRef({ zoom, canvasOffset, boardItems, undoStack, redoStack });
+  liveRef.current = { zoom, canvasOffset, boardItems, undoStack, redoStack };
+
+  function pushUndo() {
+    setUndoStack((s) => [...s.slice(-49), boardItems]);
+    setRedoStack([]);
+  }
+
+  function undo() {
+    if (undoStack.length === 0) return;
+    setRedoStack((r) => [...r.slice(-49), boardItems]);
+    setBoardItems(undoStack[undoStack.length - 1]);
+    setUndoStack((s) => s.slice(0, -1));
+    addHistoryEntry(setHistory, "Undid last action.");
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+    setUndoStack((u) => [...u.slice(-49), boardItems]);
+    setBoardItems(redoStack[redoStack.length - 1]);
+    setRedoStack((s) => s.slice(0, -1));
+    addHistoryEntry(setHistory, "Redid last action.");
+  }
+
+  function zoomToward(cx: number, cy: number, delta: number) {
+    const { zoom: z, canvasOffset: o } = liveRef.current;
+    const newZoom = parseFloat(Math.min(2, Math.max(0.25, z + delta)).toFixed(2));
+    if (newZoom === z) return;
+    const factor = newZoom / z;
+    setZoom(newZoom);
+    setCanvasOffset({ x: cx - (cx - o.x) * factor, y: cy - (cy - o.y) * factor });
+  }
+
+  function resetView() {
+    setZoom(1);
+    setCanvasOffset({ x: 0, y: 0 });
+  }
+
+  // Wheel-to-zoom (non-passive so preventDefault works)
+  useEffect(() => {
+    const el = canvasWrapperRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      zoomToward(e.clientX, e.clientY, delta);
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const { zoom: z, undoStack: us, redoStack: rs, boardItems: bi } = liveRef.current;
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        if (us.length === 0) return;
+        setRedoStack((r) => [...r.slice(-49), bi]);
+        setBoardItems(us[us.length - 1]);
+        setUndoStack((s) => s.slice(0, -1));
+        addHistoryEntry(setHistory, "Undid last action.");
+      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        if (rs.length === 0) return;
+        setUndoStack((u) => [...u.slice(-49), bi]);
+        setBoardItems(rs[rs.length - 1]);
+        setRedoStack((s) => s.slice(0, -1));
+        addHistoryEntry(setHistory, "Redid last action.");
+      } else if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        zoomToward(window.innerWidth / 2, window.innerHeight / 2, 0.1);
+      } else if (e.key === "-") {
+        e.preventDefault();
+        zoomToward(window.innerWidth / 2, window.innerHeight / 2, -0.1);
+      } else if (e.key === "0") {
+        e.preventDefault();
+        setZoom(1);
+        setCanvasOffset({ x: 0, y: 0 });
+      }
+      void z; // satisfy linter
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateBoardItem(id: string, updater: (item: BoardItem) => BoardItem) {
     setBoardItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
@@ -232,8 +329,11 @@ export function VisualizerWorkbench() {
 
   function insertStructure() {
     startTransition(() => {
-      const offset = boardItems.length * 36;
-      const nextPosition = { x: 40 + (offset % 260), y: 80 + offset };
+      pushUndo();
+      const offset = boardItems.length * 40;
+      const centerX = Math.round((window.innerWidth / 2 - canvasOffset.x) / zoom);
+      const centerY = Math.round((window.innerHeight / 2 - canvasOffset.y) / zoom);
+      const nextPosition = { x: centerX - 300 + (offset % 220), y: centerY - 120 + (offset % 220) };
       const newItem = createBoardItem(insertDraft.kind, insertDraft, nextPosition);
       setBoardItems((current) => [...current, newItem]);
       addHistoryEntry(setHistory, `Inserted a ${structureCopy[insertDraft.kind].title.toLowerCase()} sketch onto the whiteboard.`);
@@ -242,37 +342,51 @@ export function VisualizerWorkbench() {
   }
 
   function removeBoardItem(id: string) {
+    pushUndo();
     setBoardItems((current) => current.filter((item) => item.id !== id));
     addHistoryEntry(setHistory, "Removed a whiteboard sketch.");
   }
 
-  function handleDragStart(event: React.PointerEvent<HTMLDivElement>, id: string) {
+  function handleCardDragStart(event: React.PointerEvent<HTMLDivElement>, id: string) {
+    event.stopPropagation();
+    pushUndo();
     const card = event.currentTarget.parentElement;
     if (!card) return;
-
     const rect = card.getBoundingClientRect();
     setDragState({
+      kind: "card",
       id,
       pointerOffsetX: event.clientX - rect.left,
       pointerOffsetY: event.clientY - rect.top,
     });
   }
 
-  function handleBoardPointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!dragState) return;
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const dragged = boardItems.find((item) => item.id === dragState.id);
-    const width = dragged ? getCardWidth(dragged) : 360;
-    const height = dragged ? getCardHeight(dragged) : 300;
-    const x = clamp(event.clientX - rect.left - dragState.pointerOffsetX, 16, rect.width - width - 16);
-    const y = clamp(event.clientY - rect.top - dragState.pointerOffsetY, 16, rect.height - height - 16);
-
-    updateBoardItem(dragState.id, (item) => ({ ...item, position: { x, y } }));
+  function handleCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    setDragState({
+      kind: "pan",
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startOffsetX: canvasOffset.x,
+      startOffsetY: canvasOffset.y,
+    });
   }
 
-  function handleBoardPointerUp() {
-    if (dragState) addHistoryEntry(setHistory, "Moved a whiteboard sketch.");
+  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!dragState) return;
+    if (dragState.kind === "pan") {
+      setCanvasOffset({
+        x: dragState.startOffsetX + (event.clientX - dragState.startClientX),
+        y: dragState.startOffsetY + (event.clientY - dragState.startClientY),
+      });
+    } else {
+      const x = (event.clientX - dragState.pointerOffsetX - canvasOffset.x) / zoom;
+      const y = (event.clientY - dragState.pointerOffsetY - canvasOffset.y) / zoom;
+      updateBoardItem(dragState.id, (item) => ({ ...item, position: { x, y } }));
+    }
+  }
+
+  function handlePointerUp() {
+    if (dragState?.kind === "card") addHistoryEntry(setHistory, "Moved a whiteboard sketch.");
     setDragState(null);
   }
 
@@ -291,6 +405,7 @@ export function VisualizerWorkbench() {
                 addHistoryEntry(setHistory, "Array append skipped because the value was invalid.");
                 return;
               }
+              pushUndo();
               updateBoardItem(item.id, (current) => current.kind === "array" ? { ...current, values: [...current.values, parsed].slice(0, 15), flash: [Math.min(current.values.length, 14)] } : current);
               addHistoryEntry(setHistory, "Appended an array value.");
             }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-medium text-slate-900">Append</button>
@@ -301,6 +416,7 @@ export function VisualizerWorkbench() {
                 addHistoryEntry(setHistory, "Array insert skipped because the inputs were invalid.");
                 return;
               }
+              pushUndo();
               updateBoardItem(item.id, (current) => {
                 if (current.kind !== "array") return current;
                 const index = clamp(parsedIndex, 0, current.values.length);
@@ -316,6 +432,7 @@ export function VisualizerWorkbench() {
                 addHistoryEntry(setHistory, "Array remove skipped because the index was invalid.");
                 return;
               }
+              pushUndo();
               updateBoardItem(item.id, (current) => {
                 if (current.kind !== "array" || !current.values.length) return current;
                 const index = clamp(parsedIndex, 0, current.values.length - 1);
@@ -330,6 +447,7 @@ export function VisualizerWorkbench() {
                 addHistoryEntry(setHistory, "Array swap skipped because the swap indices were invalid.");
                 return;
               }
+              pushUndo();
               updateBoardItem(item.id, (current) => {
                 if (current.kind !== "array" || !current.values.length) return current;
                 const leftIndex = clamp(left, 0, current.values.length - 1);
@@ -376,6 +494,7 @@ export function VisualizerWorkbench() {
               addHistoryEntry(setHistory, "Linked-list insert skipped because the label was empty.");
               return;
             }
+            pushUndo();
             updateBoardItem(item.id, (current) => {
               if (current.kind !== "linked-list") return current;
               const nextNode = { id: createId("list-node"), label };
@@ -392,6 +511,7 @@ export function VisualizerWorkbench() {
               addHistoryEntry(setHistory, "Linked-list remove skipped because no node was selected.");
               return;
             }
+            pushUndo();
             updateBoardItem(item.id, (current) => {
               if (current.kind !== "linked-list") return current;
               const next = current.nodes.filter((node) => node.id !== current.selectedNodeId);
@@ -423,6 +543,7 @@ export function VisualizerWorkbench() {
           <input value={item.labelInput} onChange={(event) => updateBoardItem(item.id, (current) => current.kind === "graph" ? { ...current, labelInput: event.target.value } : current)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500" placeholder="new node label" />
           <button type="button" onClick={() => {
             const label = item.labelInput.trim() || String(item.nodes.length);
+            pushUndo();
             updateBoardItem(item.id, (current) => current.kind === "graph" ? { ...current, nodes: [...current.nodes, { id: createId("graph-node"), label, x: 50, y: 50 }] } : current);
             addHistoryEntry(setHistory, "Added a graph node.");
           }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900">Add node</button>
@@ -431,6 +552,7 @@ export function VisualizerWorkbench() {
               addHistoryEntry(setHistory, "Graph connect skipped because two nodes were not selected.");
               return;
             }
+            pushUndo();
             updateBoardItem(item.id, (current) => {
               if (current.kind !== "graph") return current;
               const duplicate = current.edges.some((edge) => edge.from === current.selection[0] && edge.to === current.selection[1]);
@@ -445,6 +567,7 @@ export function VisualizerWorkbench() {
             addHistoryEntry(setHistory, "Graph remove skipped because no nodes were selected.");
             return;
           }
+          pushUndo();
           updateBoardItem(item.id, (current) => current.kind === "graph" ? { ...current, nodes: current.nodes.filter((node) => !current.selection.includes(node.id)), edges: current.edges.filter((edge) => !current.selection.includes(edge.from) && !current.selection.includes(edge.to)), selection: [], flash: [] } : current);
           addHistoryEntry(setHistory, "Removed selected graph nodes.");
         }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900">Remove selected</button>
@@ -491,6 +614,7 @@ export function VisualizerWorkbench() {
               addHistoryEntry(setHistory, "Hash-map insert skipped because the key or values were empty.");
               return;
             }
+            pushUndo();
             updateBoardItem(item.id, (current) => {
               if (current.kind !== "hashmap") return current;
               const existing = current.entries.find((entry) => entry.key === key);
@@ -520,6 +644,7 @@ export function VisualizerWorkbench() {
                 <div className={`flex min-h-16 items-center justify-between border-2 border-slate-800 px-4 font-mono text-2xl font-semibold text-slate-900 ${item.flash.includes(entry.id) ? "bg-blue-50" : "bg-white"}`}>
                   <span>&apos;{entry.values.join(", ")}&apos;</span>
                   <button type="button" onClick={() => {
+                    pushUndo();
                     updateBoardItem(item.id, (current) => current.kind === "hashmap" ? { ...current, entries: current.entries.filter((currentEntry) => currentEntry.id !== entry.id), flash: [] } : current);
                     addHistoryEntry(setHistory, "Removed a hash-map entry.");
                   }} className="ml-4 rounded-full border border-slate-300 px-3 py-1 text-xs font-sans uppercase tracking-[0.25em] text-slate-600">Remove</button>
@@ -532,101 +657,249 @@ export function VisualizerWorkbench() {
     );
   }
 
-  return (
-    <section className="relative overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.28),_transparent_28%),linear-gradient(135deg,#0f172a_0%,#12263a_38%,#163b58_72%,#244f75_100%)] text-slate-50">
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:32px_32px] opacity-35" />
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-6 px-5 py-6 sm:px-8">
-        <header className="grid gap-4 rounded-[2rem] border border-white/15 bg-white/10 p-6 backdrop-blur lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-4">
-            <p className="text-sm uppercase tracking-[0.35em] text-cyan-200/85">Build4Good Whiteboard</p>
-            <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-              Insert many structures onto one canvas and move them around like a planning board.
-            </h1>
-            <p className="max-w-3xl text-base leading-7 text-slate-200 sm:text-lg">
-              The canvas stays draggable, but the structures now read more like textbook diagrams and whiteboard sketches.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-white/15 bg-slate-950/35 p-5 text-sm text-slate-300">
-            <p className="font-medium text-white">Whiteboard flow</p>
-            <p className="mt-2 leading-6">Choose a structure, decide how many starter elements it should have, insert it, then drag the sketch anywhere on the board.</p>
-            <button type="button" onClick={() => setHistoryOpen((current) => !current)} className="mt-4 rounded-full border border-white/15 bg-white/8 px-4 py-2 font-medium text-white transition hover:bg-white/15">
-              {historyOpen ? "Hide history" : "Show history"}
-            </button>
-          </div>
-        </header>
+  const isPanning = dragState?.kind === "pan";
+  const isDraggingCard = dragState?.kind === "card";
 
-        <section className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <aside className="rounded-[1.8rem] border border-white/15 bg-slate-950/40 p-5 backdrop-blur">
-            <p className="text-sm uppercase tracking-[0.3em] text-cyan-200/80">Insert Structure</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+  return (
+    <div
+      ref={canvasWrapperRef}
+      className="fixed inset-0 overflow-hidden bg-[#08111f] select-none"
+      style={{ cursor: isPanning || isDraggingCard ? "grabbing" : "default" }}
+      onPointerDown={handleCanvasPointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+    >
+      {/* Fixed dot-grid background — stays in place as canvas pans */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle,rgba(255,255,255,0.13)_1px,transparent_1px)] bg-[size:32px_32px]" />
+
+      {/* Infinite canvas */}
+      <div
+        className="absolute"
+        style={{
+          transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoom})`,
+          transformOrigin: "0 0",
+          width: 4000,
+          height: 3000,
+        }}
+      >
+        {boardItems.map((item) => (
+          <article
+            key={item.id}
+            className="absolute rounded-[1.6rem] border border-white/15 bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.98))] p-4 shadow-[0_24px_60px_rgba(2,6,23,0.4)] backdrop-blur"
+            style={{ left: item.position.x, top: item.position.y, width: getCardWidth(item) }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div
+              onPointerDown={(event) => handleCardDragStart(event, item.id)}
+              className="mb-4 flex cursor-grab items-center justify-between gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 active:cursor-grabbing"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-1">
+                  <div className="h-0.5 w-5 rounded-full bg-slate-300" />
+                  <div className="h-0.5 w-5 rounded-full bg-slate-300" />
+                  <div className="h-0.5 w-5 rounded-full bg-slate-300" />
+                </div>
+                <span className="text-xs font-medium uppercase tracking-widest text-slate-400">
+                  {structureCopy[item.kind].title}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeBoardItem(item.id)}
+                className="rounded-full border border-slate-300 px-3 py-1 text-[11px] uppercase tracking-[0.25em] text-slate-500 hover:border-red-300 hover:text-red-500 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+
+            {item.kind === "array" ? renderArrayBoard(item) : null}
+            {item.kind === "linked-list" ? renderLinkedListBoard(item) : null}
+            {item.kind === "graph" ? renderGraphBoard(item) : null}
+            {item.kind === "hashmap" ? renderHashBoard(item) : null}
+          </article>
+        ))}
+      </div>
+
+      {/* Floating toolbar — bottom left */}
+      <div
+        className="fixed bottom-6 left-6 z-30"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {toolbarOpen ? (
+          <div className="w-80 rounded-[1.8rem] border border-white/12 bg-slate-950/96 p-5 shadow-[0_32px_80px_rgba(2,6,23,0.65)] backdrop-blur">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300/80">Insert Structure</p>
+              <button
+                type="button"
+                onClick={() => setToolbarOpen(false)}
+                className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-400 hover:text-white transition-colors"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
               {(["array", "linked-list", "graph", "hashmap"] as StructureKind[]).map((kind) => (
-                <button key={kind} type="button" onClick={() => setInsertDraft((current) => ({ ...current, kind }))} className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${insertDraft.kind === kind ? "border-cyan-200 bg-cyan-300 text-slate-950" : "border-white/10 bg-white/6 text-white hover:border-cyan-200/45"}`}>
-                  <p className="font-medium">{structureCopy[kind].title}</p>
-                  <p className="mt-1 text-xs leading-5 opacity-80">{structureCopy[kind].hint}</p>
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => setInsertDraft((current) => ({ ...current, kind }))}
+                  className={`rounded-2xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                    insertDraft.kind === kind
+                      ? "border-cyan-300 bg-cyan-300 text-slate-950"
+                      : "border-white/10 bg-white/5 text-white hover:border-cyan-300/40 hover:bg-white/8"
+                  }`}
+                >
+                  <p className="font-medium text-sm">{structureCopy[kind].title}</p>
+                  <p className="mt-0.5 text-[11px] leading-4 opacity-70">{structureCopy[kind].hint}</p>
                 </button>
               ))}
             </div>
 
-            <div className="mt-5 space-y-4 text-sm text-slate-200">
-              <label className="grid gap-2">
-                <span>How many starter elements?</span>
-                <input value={insertDraft.count} onChange={(event) => setInsertDraft((current) => ({ ...current, count: event.target.value }))} className="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-cyan-300" placeholder="4" />
+            <div className="mt-4 space-y-3">
+              <label className="grid gap-1.5">
+                <span className="text-[11px] uppercase tracking-wider text-slate-400">Starter elements</span>
+                <input
+                  value={insertDraft.count}
+                  onChange={(e) => setInsertDraft((c) => ({ ...c, count: e.target.value }))}
+                  className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-400 placeholder:text-slate-600"
+                  placeholder="4"
+                />
               </label>
-              <label className="grid gap-2">
-                <span>Starter values or labels</span>
-                <textarea value={insertDraft.values} onChange={(event) => setInsertDraft((current) => ({ ...current, values: event.target.value }))} className="min-h-32 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 leading-6 outline-none focus:border-cyan-300" placeholder={insertDraft.kind === "hashmap" ? "ca:California; ok:Oklahoma" : "1,2,3 or 0,1,2,3"} />
+              <label className="grid gap-1.5">
+                <span className="text-[11px] uppercase tracking-wider text-slate-400">Starter values</span>
+                <textarea
+                  value={insertDraft.values}
+                  onChange={(e) => setInsertDraft((c) => ({ ...c, values: e.target.value }))}
+                  className="min-h-16 resize-none rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white leading-6 outline-none focus:border-cyan-400 placeholder:text-slate-600"
+                  placeholder={insertDraft.kind === "hashmap" ? "ca:California; ok:Oklahoma" : "1,2,3"}
+                />
               </label>
-              <p className="rounded-2xl border border-white/10 bg-white/5 p-4 leading-6 text-slate-300">
+              <p className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] leading-5 text-slate-500">
                 {structureCopy[insertDraft.kind].helper}
               </p>
-              <button type="button" onClick={insertStructure} className="w-full rounded-2xl bg-amber-300 px-4 py-3 font-medium text-slate-950 transition hover:bg-amber-200">
+              <button
+                type="button"
+                onClick={insertStructure}
+                className="w-full rounded-2xl bg-amber-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-200"
+              >
                 Insert onto whiteboard
               </button>
             </div>
-          </aside>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setToolbarOpen(true)}
+            className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-slate-950/90 px-5 py-3 text-sm font-medium text-white shadow-[0_8px_32px_rgba(2,6,23,0.5)] backdrop-blur hover:bg-slate-900/95 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            Insert structure
+          </button>
+        )}
+      </div>
 
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/15 bg-slate-950/35 backdrop-blur">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4 text-sm text-slate-300">
-              <p>Canvas with {boardItems.length} sketches</p>
-              <p>Drag sketches by the handle bars</p>
+      {/* History panel — top right */}
+      <div
+        className="fixed top-5 right-5 z-30"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {historyOpen ? (
+          <div className="w-72 rounded-[1.8rem] border border-white/12 bg-slate-950/96 p-5 shadow-[0_32px_80px_rgba(2,6,23,0.65)] backdrop-blur">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300/80">History</p>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-slate-400 hover:text-white transition-colors"
+              >
+                Close
+              </button>
             </div>
-            <div className="relative min-h-[1200px]" onPointerMove={handleBoardPointerMove} onPointerUp={handleBoardPointerUp} onPointerLeave={handleBoardPointerUp}>
-              {boardItems.map((item) => (
-                <article key={item.id} className="absolute rounded-[1.6rem] border border-white/15 bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(241,245,249,0.98))] p-4 shadow-[0_24px_60px_rgba(2,6,23,0.4)] backdrop-blur" style={{ left: item.position.x, top: item.position.y, width: getCardWidth(item) }}>
-                  <div onPointerDown={(event) => handleDragStart(event, item.id)} className="mb-4 flex cursor-grab items-center justify-between gap-3 rounded-2xl border border-slate-300 bg-white px-4 py-3 active:cursor-grabbing">
-                    <div className="h-2 w-20 rounded-full bg-slate-300" />
-                    <button type="button" onClick={() => removeBoardItem(item.id)} className="rounded-full border border-slate-300 px-3 py-1 text-[11px] uppercase tracking-[0.25em] text-slate-600">
-                      Remove
-                    </button>
-                  </div>
-
-                  {item.kind === "array" ? renderArrayBoard(item) : null}
-                  {item.kind === "linked-list" ? renderLinkedListBoard(item) : null}
-                  {item.kind === "graph" ? renderGraphBoard(item) : null}
-                  {item.kind === "hashmap" ? renderHashBoard(item) : null}
-                </article>
+            <div className="max-h-80 space-y-1.5 overflow-y-auto">
+              {history.map((entry, index) => (
+                <div
+                  key={`${entry}-${index}`}
+                  className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs leading-5 text-slate-400"
+                >
+                  {entry}
+                </div>
               ))}
             </div>
           </div>
-        </section>
-
-        {historyOpen ? (
-          <aside className="fixed right-5 top-5 z-20 w-full max-w-sm rounded-[1.8rem] border border-white/15 bg-slate-950/92 p-5 shadow-[0_30px_80px_rgba(2,6,23,0.48)] backdrop-blur">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm uppercase tracking-[0.3em] text-cyan-200/80">History</p>
-                <h2 className="mt-1 text-xl font-semibold text-white">Recent whiteboard actions</h2>
-              </div>
-              <button type="button" onClick={() => setHistoryOpen(false)} className="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.25em] text-slate-300">Close</button>
-            </div>
-            <div className="mt-4 space-y-3 text-sm text-slate-300">
-              {history.map((entry, index) => (
-                <div key={`${entry}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 leading-6">{entry}</div>
-              ))}
-            </div>
-          </aside>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="rounded-2xl border border-white/15 bg-slate-950/90 px-4 py-2.5 text-xs text-slate-400 shadow backdrop-blur hover:text-slate-200 transition-colors"
+          >
+            {boardItems.length} sketch{boardItems.length !== 1 ? "es" : ""} &middot; history
+          </button>
+        )}
       </div>
-    </section>
+
+      {/* Zoom + Undo controls — bottom right */}
+      <div
+        className="fixed bottom-6 right-6 z-30 flex items-center gap-2"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={undo}
+          disabled={undoStack.length === 0}
+          title="Undo (Ctrl+Z)"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 bg-slate-950/90 text-slate-300 shadow backdrop-blur transition-colors hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M3 7.5A4.5 4.5 0 1 1 7.5 12H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M3 4.5v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={redo}
+          disabled={redoStack.length === 0}
+          title="Redo (Ctrl+Y)"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 bg-slate-950/90 text-slate-300 shadow backdrop-blur transition-colors hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M12 7.5A4.5 4.5 0 1 0 7.5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 4.5v3H9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <div className="flex items-center gap-0.5 rounded-xl border border-white/15 bg-slate-950/90 px-1 py-1 shadow backdrop-blur">
+          <button
+            type="button"
+            onClick={() => zoomToward(window.innerWidth / 2, window.innerHeight / 2, -0.1)}
+            disabled={zoom <= 0.25}
+            title="Zoom out (Ctrl+-)"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/8 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+          >−</button>
+          <button
+            type="button"
+            onClick={resetView}
+            title="Reset zoom (Ctrl+0)"
+            className="min-w-[3.2rem] px-1 text-center text-xs font-medium tabular-nums text-slate-300 hover:text-white transition-colors"
+          >{Math.round(zoom * 100)}%</button>
+          <button
+            type="button"
+            onClick={() => zoomToward(window.innerWidth / 2, window.innerHeight / 2, 0.1)}
+            disabled={zoom >= 2}
+            title="Zoom in (Ctrl+=)"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/8 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed text-lg leading-none"
+          >+</button>
+        </div>
+      </div>
+
+      {/* Pan hint */}
+      <div className="pointer-events-none fixed bottom-6 left-1/2 -translate-x-1/2 z-20">
+        <p className="rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-[11px] text-slate-500 backdrop-blur">
+          Drag canvas to pan &nbsp;·&nbsp; scroll to zoom &nbsp;·&nbsp; Ctrl+Z to undo
+        </p>
+      </div>
+    </div>
   );
 }

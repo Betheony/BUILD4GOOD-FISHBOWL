@@ -506,12 +506,6 @@ export default function VisualizerWorkbench() {
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
-        {/* Undo/Redo */}
-        <button onClick={undo} disabled={!undoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Z">↩</button>
-        <button onClick={redo} disabled={!redoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Y">↪</button>
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
-
         {/* Zoom */}
         <button onClick={() => setZoom(z => Math.max(0.2, z * 0.909))} className={tbBtn()}>−</button>
         <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
@@ -550,6 +544,9 @@ export default function VisualizerWorkbench() {
             <button title="List" onClick={() => addBoard("linkedlist")} className="px-2 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors cursor-pointer">◯→</button>
             <button title="HashMap" onClick={() => addBoard("hashmap")} className="px-2 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors cursor-pointer">⊟</button>
             <button title="Node" onClick={() => addBoard("node")} className="px-2 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors cursor-pointer">◯</button>
+            <div className="my-0.5 h-px bg-slate-200" />
+            <button onClick={undo} disabled={!undoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Z">↩</button>
+            <button onClick={redo} disabled={!redoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Y">↪</button>
           </div>
 
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>

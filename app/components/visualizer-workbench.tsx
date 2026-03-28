@@ -497,16 +497,6 @@ export default function VisualizerWorkbench() {
 
       {/* ── Toolbar ── */}
       <div className="no-print flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 select-none bg-white shadow-sm flex-wrap" style={{ zIndex: 50 }}>
-
-        {/* Add buttons */}
-        <span className="text-xs text-slate-400 mr-1">Add:</span>
-        <button onClick={() => addBoard("array")} className="px-2.5 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors">[ ] Array</button>
-        <button onClick={() => addBoard("linkedlist")} className="px-2.5 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors">◯→ List</button>
-        <button onClick={() => addBoard("hashmap")} className="px-2.5 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors">⊟ HashMap</button>
-        <button onClick={() => addBoard("node")} className="px-2.5 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors">◯ Node</button>
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
-
         {/* Tools */}
         {(["select", "arrow", "text"] as Tool[]).map(t => (
           <button key={t} onClick={() => setActiveTool(t)} className={tbBtn(activeTool === t)}>
@@ -551,6 +541,17 @@ export default function VisualizerWorkbench() {
           onPointerMove={handleCanvasMove}
           onPointerUp={handleCanvasUp}
         >
+          {/* Insert objects (vertical bar) */}
+          <div
+            className="no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <button title="Array" onClick={() => addBoard("array")} className="px-2 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer">[ ]</button>
+            <button title="List" onClick={() => addBoard("linkedlist")} className="px-2 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors cursor-pointer">◯→</button>
+            <button title="HashMap" onClick={() => addBoard("hashmap")} className="px-2 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors cursor-pointer">⊟</button>
+            <button title="Node" onClick={() => addBoard("node")} className="px-2 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors cursor-pointer">◯</button>
+          </div>
+
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
 
             {/* SVG arrow layer */}

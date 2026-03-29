@@ -168,7 +168,7 @@ export default function VisualizerWorkbench() {
   const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
   const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-
+  const [hmDupAlert, setHmDupAlert] = useState<{ bid: string; key: string } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null);
   const addBoardCountRef = useRef(0);
   const live = useRef({ zoom, canvasOffset, boardItems, annotations, activeTool, dragState });
@@ -340,33 +340,35 @@ export default function VisualizerWorkbench() {
 
   // ── Hashmap ops ────────────────────────────────────────────────────────────
 
+  
   function hmAdd(bid: string, blank = false) {
     const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard | undefined
     if (!hm) return
-
     if (!blank && !hm.keyDraft.trim()) return
 
-    snapshot()
-
-    const entry: HashEntry = {
-      id: uid(),
-      key: blank ? "" : hm.keyDraft.trim(),
-      value: blank ? "" : hm.valueDraft,
+    const newKey = blank ? "" : hm.keyDraft.trim()
+    // Only check duplicates for non-blank entries with a key
+    if (!blank && newKey && hm.entries.some(e => e.key === newKey)) {
+      setHmDupAlert({ bid, key: newKey })
+      return
     }
 
+    snapshot()
+    const entry: HashEntry = {
+      id: uid(),
+      key: newKey,
+      value: blank ? "" : hm.valueDraft,
+    }
     setBoardItems(p =>
       p.map(b =>
-        b.id !== bid
-          ? b
-          : {
-              ...(b as HashmapBoard),
-              entries: [...(b as HashmapBoard).entries, entry],
-              keyDraft: blank ? (b as HashmapBoard).keyDraft : "",
-              valueDraft: blank ? (b as HashmapBoard).valueDraft : "",
-            }
+        b.id !== bid ? b : {
+          ...(b as HashmapBoard),
+          entries: [...(b as HashmapBoard).entries, entry],
+          keyDraft: blank ? (b as HashmapBoard).keyDraft : "",
+          valueDraft: blank ? (b as HashmapBoard).valueDraft : "",
+        }
       )
     )
-
     log(blank ? "HM blank entry added" : `HM set ${entry.key}:${entry.value}`)
   }
 
@@ -1189,28 +1191,6 @@ export default function VisualizerWorkbench() {
                       className="flex gap-1 p-2"
                       style={{ borderTop: hm.entries.length ? "1px solid #fed7aa" : undefined }}
                     >
-                      <button
-                        onPointerDown={e => e.stopPropagation()}
-                        onClick={() => hmAdd(hm.id, true)}
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: "50%",
-                          border: "1.5px dashed #fdba74",
-                          background: "none",
-                          color: "#f97316",
-                          cursor: "pointer",
-                          fontSize: 16,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.color = "#ea580c")}
-                        onMouseLeave={e => (e.currentTarget.style.color = "#f97316")}
-                        title="Add blank entry"
-                      >
-                        +
-                      </button>
                       <input
                         value={hm.keyDraft}
                         onChange={e => hmUpdateDraft(hm.id, "keyDraft", e.target.value)}
@@ -1244,6 +1224,62 @@ export default function VisualizerWorkbench() {
                           color: "#1e293b",
                         }}
                       />
+
+                      {hmDupAlert?.bid === hm.id && (
+                        <div
+                          onPointerDown={e => e.stopPropagation()}
+                          style={{
+                            position: "absolute",
+                            left: "calc(100% + 8px)",
+                            top: 0,
+                            background: "white",
+                            border: "1.5px solid #fca5a5",
+                            borderRadius: 8,
+                            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+                            padding: "8px 10px",
+                            width: 200,
+                            fontSize: 12,
+                            color: "#9a3412",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 6,
+                            zIndex: 10,
+                          }}
+                        >
+                          <span style={{ flex: 1 }}>
+                            <strong>Duplicate key:</strong> "{hmDupAlert.key}" already exists in this HashMap.
+                          </span>
+                          <button
+                            onClick={() => setHmDupAlert(null)}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
+                          >×</button>
+                        </div>
+                      )}
+
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => hmAdd(hm.id, true)}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          border: "1.5px dashed #fdba74",
+                          background: "none",
+                          color: "#f97316",
+                          cursor: "pointer",
+                          fontSize: 16,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.color = "#ea580c")}
+                        onMouseLeave={e => (e.currentTarget.style.color = "#f97316")}
+                        title="Add blank entry"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 </div>

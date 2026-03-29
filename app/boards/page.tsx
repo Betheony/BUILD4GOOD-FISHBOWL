@@ -28,6 +28,10 @@ function emptyBoardState(name = "Untitled Whiteboard"): PersistedBoardState {
   };
 }
 
+function normalizeBoardName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 export default function BoardsPage() {
   const router = useRouter();
   const supabase = getSupabaseBrowserClient();
@@ -156,6 +160,19 @@ export default function BoardsPage() {
     return activeBoard.state_json ?? emptyBoardState(activeBoard.name);
   }, [activeBoard]);
 
+  const duplicateNameWarning = useMemo(() => {
+    if (!activeBoard || !draftState) return null;
+
+    const candidateName = draftState.whiteboardName?.trim();
+    if (!candidateName) return null;
+
+    const duplicateExists = boards.some(
+      b => b.id !== activeBoard.id && normalizeBoardName(b.name) === normalizeBoardName(candidateName),
+    );
+
+    return duplicateExists ? `Board name \"${candidateName}\" already exists. Choose a different name.` : null;
+  }, [activeBoard, draftState, boards]);
+
   const workingState = activeBoard ? activeBoardInitialState : localDraft;
 
   useEffect(() => {
@@ -179,7 +196,13 @@ export default function BoardsPage() {
     setError(null);
     setBusy(true);
 
-    const state = emptyBoardState(`Board ${boards.length + 1}`);
+    const existingNames = new Set(boards.map(b => normalizeBoardName(b.name)));
+    let nextIndex = boards.length + 1;
+    while (existingNames.has(normalizeBoardName(`Board ${nextIndex}`))) {
+      nextIndex += 1;
+    }
+
+    const state = emptyBoardState(`Board ${nextIndex}`);
     const { data, error: createError } = await supabase
       .from("whiteboards")
       .insert({
@@ -251,6 +274,10 @@ export default function BoardsPage() {
 
   useEffect(() => {
     if (!activeBoard || !draftState || !userId || !dbAvailable) return;
+    if (duplicateNameWarning) {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      return;
+    }
 
     const nextHash = JSON.stringify(draftState);
     if (nextHash === lastSavedHashRef.current) return;
@@ -282,7 +309,7 @@ export default function BoardsPage() {
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [activeBoard, draftState, userId, dbAvailable, supabase]);
+  }, [activeBoard, draftState, userId, dbAvailable, duplicateNameWarning, supabase]);
 
   if (loading) {
     return <main className="min-h-screen bg-slate-50 text-slate-700 flex items-center justify-center">Loading workspace...</main>;
@@ -368,6 +395,11 @@ export default function BoardsPage() {
         {error && (
           <div className="px-3 py-2 text-xs text-rose-700 bg-rose-50 border-b border-rose-200">
             {error}
+          </div>
+        )}
+        {duplicateNameWarning && (
+          <div className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-200">
+            {duplicateNameWarning}
           </div>
         )}
 

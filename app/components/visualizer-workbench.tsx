@@ -120,7 +120,7 @@ function getBoardBounds(item: BoardItem) {
     return {
       x: item.position.x,
       y: item.position.y - 32,
-      width: 220,
+      width: item.size.width,
       height: 180,
     };
   }
@@ -321,7 +321,17 @@ export default function VisualizerWorkbench() {
       nodes: [{ id: uid(), value: "" }],
       selectedNodes: [],
     };
-    else if (kind === "hashmap") board = { id: uid(), kind, position: basePos, label: "HashMap", entries: [], keyDraft: "", valueDraft: "" };
+    else if (kind === "hashmap") board = {
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "HashMap",
+      entries: [],
+      keyDraft: "",
+      valueDraft: "",
+      sortMode: "none",
+      size: { width: 320 },
+    };
     else board = { id: uid(), kind: "node", position: basePos, label: "" };
 
     const occupiedBounds = live.current.boardItems.map(item => getBoardBounds(item));
@@ -459,14 +469,14 @@ export default function VisualizerWorkbench() {
   // ── Hashmap ops ────────────────────────────────────────────────────────────
 
   
-  function hmAdd(bid: string, blank = false) {
+  function hmAdd(bid: string) {
     const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard | undefined
     if (!hm) return
-    if (!blank && !hm.keyDraft.trim()) return
+    const newKey = hm.keyDraft.trim()
+    const newValue = hm.valueDraft.trim()
+    if (!newKey || !newValue) return
 
-    const newKey = blank ? "" : hm.keyDraft.trim()
-    // Only check duplicates for non-blank entries with a key
-    if (!blank && newKey && hm.entries.some(e => e.key === newKey)) {
+    if (hm.entries.some(e => e.key === newKey)) {
       setHmDupAlert({ bid, key: newKey })
       return
     }
@@ -475,19 +485,20 @@ export default function VisualizerWorkbench() {
     const entry: HashEntry = {
       id: uid(),
       key: newKey,
-      value: blank ? "" : hm.valueDraft,
+      value: newValue,
     }
     setBoardItems(p =>
       p.map(b =>
         b.id !== bid ? b : {
           ...(b as HashmapBoard),
           entries: [...(b as HashmapBoard).entries, entry],
-          keyDraft: blank ? (b as HashmapBoard).keyDraft : "",
-          valueDraft: blank ? (b as HashmapBoard).valueDraft : "",
+          keyDraft: "",
+          valueDraft: "",
         }
       )
     )
-    log(blank ? "HM blank entry added" : `HM set ${entry.key}:${entry.value}`)
+    setHmDupAlert(null)
+    log(`HM set ${entry.key}:${entry.value}`)
   }
 
   function hmRemove(bid: string, eid: string, key: string) {
@@ -506,6 +517,7 @@ export default function VisualizerWorkbench() {
   }
 
   function hmUpdateDraft(bid: string, field: "keyDraft" | "valueDraft", val: string) {
+    if (hmDupAlert?.bid === bid) setHmDupAlert(null)
     setBoardItems(p =>
       p.map(b =>
         b.id !== bid
@@ -1223,18 +1235,21 @@ export default function VisualizerWorkbench() {
                     left: hm.position.x,
                     top: hm.position.y,
                     width: hm.size.width,
-                    minWidth: 240,
+                    minWidth: 320,
                     userSelect: "none",
                     animation: "fadeSlideIn 0.2s ease",
                   }}
                   onPointerDown={e => {
-                    if (!["INPUT", "BUTTON", "SELECT"].includes((e.target as HTMLElement).tagName)) {
-                      setSelectedBoardId(hm.id)
-                      handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y)
-                    }
+                    if (["INPUT", "BUTTON", "SELECT"].includes((e.target as HTMLElement).tagName)) return
+                    setSelectedBoardId(hm.id)
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y)
                   }}
                   onClick={() => setSelectedBoardId(hm.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0, zIndex: 1 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   <div
                     style={{
                       background: "white",
@@ -1246,7 +1261,7 @@ export default function VisualizerWorkbench() {
                       display: "flex",
                       flexDirection: "column",
                       resize: "horizontal",
-                      minWidth: 240,
+                      minWidth: 320,
                     }}
                     onMouseUp={e => {
                       const el = e.currentTarget
@@ -1386,7 +1401,7 @@ export default function VisualizerWorkbench() {
                     </div>
 
                     <div
-                      className="flex gap-1 p-2"
+                      className="flex gap-1 p-2 flex-wrap"
                       style={{ borderTop: hm.entries.length ? "1px solid #fed7aa" : undefined }}
                     >
                       <input
@@ -1396,7 +1411,8 @@ export default function VisualizerWorkbench() {
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
                         placeholder="key"
                         style={{
-                          flex: 1,
+                          flex: "1 1 130px",
+                          minWidth: 0,
                           fontSize: 11,
                           padding: "3px 6px",
                           border: "1px solid #fed7aa",
@@ -1413,7 +1429,8 @@ export default function VisualizerWorkbench() {
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
                         placeholder="value"
                         style={{
-                          flex: 1,
+                          flex: "1 1 110px",
+                          minWidth: 0,
                           fontSize: 11,
                           padding: "3px 6px",
                           border: "1px solid #fed7aa",
@@ -1423,43 +1440,11 @@ export default function VisualizerWorkbench() {
                         }}
                       />
 
-                      {hmDupAlert?.bid === hm.id && (
-                        <div
-                          onPointerDown={e => e.stopPropagation()}
-                          style={{
-                            position: "absolute",
-                            left: "calc(100% + 8px)",
-                            top: 0,
-                            background: "white",
-                            border: "1.5px solid #fca5a5",
-                            borderRadius: 8,
-                            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-                            padding: "8px 10px",
-                            width: 200,
-                            fontSize: 12,
-                            color: "#9a3412",
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 6,
-                            zIndex: 10,
-                          }}
-                        >
-                          <span style={{ flex: 1 }}>
-                            <strong>Duplicate key:</strong> "{hmDupAlert.key}" already exists in this HashMap.
-                          </span>
-                          <button
-                            onClick={() => setHmDupAlert(null)}
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}
-                            onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
-                            onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
-                          >×</button>
-                        </div>
-                      )}
-
                       <button
                         onPointerDown={e => e.stopPropagation()}
-                        onClick={() => hmAdd(hm.id, true)}
+                        onClick={() => hmAdd(hm.id)}
                         style={{
+                          flex: "0 0 auto",
                           width: 28,
                           height: 28,
                           borderRadius: "50%",
@@ -1474,10 +1459,40 @@ export default function VisualizerWorkbench() {
                         }}
                         onMouseEnter={e => (e.currentTarget.style.color = "#ea580c")}
                         onMouseLeave={e => (e.currentTarget.style.color = "#f97316")}
-                        title="Add blank entry"
+                        title="Add entry"
                       >
                         +
                       </button>
+
+                      {hmDupAlert?.bid === hm.id && (
+                        <div
+                          onPointerDown={e => e.stopPropagation()}
+                          style={{
+                            flexBasis: "100%",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 8,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            border: "1px solid #fca5a5",
+                            background: "#fff7f7",
+                            color: "#9a3412",
+                            fontSize: 12,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          <span style={{ flex: 1 }}>
+                            <strong>Duplicate key.</strong> &quot;{hmDupAlert.key}&quot; already exists in this HashMap.
+                          </span>
+                          <button
+                            onClick={() => setHmDupAlert(null)}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
+                            title="Dismiss"
+                          >×</button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

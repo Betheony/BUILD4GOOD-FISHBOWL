@@ -48,10 +48,18 @@ textarea {
   to   { opacity: 0; transform: scale(0.55) translateY(-10px); }
 }
 @keyframes cellSwap {
-  0%   { transform: translateY(0); }
-  30%  { transform: translateY(-18px); }
-  70%  { transform: translateY(-18px); }
-  100% { transform: translateY(0); }
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  18% {
+    transform: translate3d(0, -24px, 0) scale(1.05);
+  }
+  78% {
+    transform: translate3d(var(--swap-shift, 0px), -24px, 0) scale(1.05);
+  }
+  100% {
+    transform: translate3d(var(--swap-shift, 0px), 0, 0) scale(1);
+  }
 }
 @keyframes cellHighlight {
   0%, 100% { box-shadow: none; }

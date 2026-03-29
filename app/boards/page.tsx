@@ -320,9 +320,12 @@ export default function BoardsPage() {
 
   if (view === "home") {
     return (
-      <main className={`relative min-h-screen ${isSpace ? "bg-[#060d1b] text-slate-100" : "bg-slate-100"}`}>
+      <main className={`relative min-h-screen overflow-hidden ${isSpace ? "bg-[#060d1b] text-slate-100" : "bg-slate-100"}`}>
         {isSpace && (
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(56,189,248,0.2),transparent_55%),radial-gradient(900px_500px_at_85%_110%,rgba(59,130,246,0.16),transparent_60%),linear-gradient(180deg,#060d1b_0%,#0a1530_100%)]" />
+          <>
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(56,189,248,0.28),transparent_55%),radial-gradient(900px_500px_at_85%_110%,rgba(59,130,246,0.22),transparent_60%),linear-gradient(180deg,#060d1b_0%,#0a1530_100%)]" />
+            <div className="pointer-events-none absolute inset-0 opacity-40 [background-image:radial-gradient(circle_at_20%_20%,rgba(255,255,255,.9)_0_1px,transparent_1px),radial-gradient(circle_at_75%_35%,rgba(255,255,255,.7)_0_1px,transparent_1px),radial-gradient(circle_at_40%_80%,rgba(255,255,255,.65)_0_1px,transparent_1px)] [background-size:180px_180px,220px_220px,260px_260px]" />
+          </>
         )}
         <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-6">
           <div className="mb-5 flex items-center justify-between">

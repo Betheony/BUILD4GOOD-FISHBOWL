@@ -82,20 +82,13 @@ type VisualizerWorkbenchProps = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-let _uid = 0;
-const uid = () => `id-${++_uid}`;
-
-function syncUidCounter(...collections: Array<Array<{ id: string }>>) {
-  let maxId = _uid;
-  for (const collection of collections) {
-    for (const item of collection) {
-      const m = /^id-(\d+)$/.exec(item.id);
-      if (!m) continue;
-      maxId = Math.max(maxId, Number(m[1]));
-    }
+const uid = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
   }
-  _uid = maxId;
-}
+
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
 function cloneItems(items: BoardItem[]): BoardItem[] {
   return items.map(item => {
@@ -115,6 +108,87 @@ const cloneAnnotations = (anns: AnnotationItem[]): AnnotationItem[] => anns.map(
 const NODE_RADIUS = 32;
 const SNAP_RADIUS = 44;
 const EDGE_NODE_OVERLAP = 4;
+const ADD_PLACEMENT_STEP = 28;
+const ADD_PLACEMENT_PADDING = 36;
+
+function getBoardBounds(item: BoardItem) {
+  if (item.kind === "array") {
+    const cellCount = Math.max(item.cells.length, 1);
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: cellCount * 42 + 40,
+      height: 96,
+    };
+  }
+
+  if (item.kind === "linkedlist") {
+    const nodeCount = Math.max(item.nodes.length, 1);
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: 110 + nodeCount * 48,
+      height: 92,
+    };
+  }
+
+  if (item.kind === "hashmap") {
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: item.size.width,
+      height: 180,
+    };
+  }
+
+  return {
+    x: item.position.x - 10,
+    y: item.position.y - 34,
+    width: NODE_RADIUS * 2 + 20,
+    height: NODE_RADIUS * 2 + 56,
+  };
+}
+
+function boundsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+function hasMatchingGraphEdge(
+  annotations: AnnotationItem[],
+  fromNodeId: string,
+  toNodeId: string,
+  directed: boolean,
+) {
+  return annotations.some(annotation => {
+    if (annotation.kind !== "arrow" || !annotation.fromNodeId || !annotation.toNodeId) {
+      return false;
+    }
+
+    if (directed || annotation.directed !== false) {
+      return (
+        annotation.fromNodeId === fromNodeId &&
+        annotation.toNodeId === toNodeId &&
+        (annotation.directed !== false) === directed
+      );
+    }
+
+    return (
+      annotation.directed === false &&
+      (
+        (annotation.fromNodeId === fromNodeId && annotation.toNodeId === toNodeId) ||
+        (annotation.fromNodeId === toNodeId && annotation.toNodeId === fromNodeId)
+      )
+    );
+  });
+}
 
 function findNearbyNode(x: number, y: number, items: BoardItem[]): GraphNode | null {
   for (const item of items) {
@@ -260,25 +334,67 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
     snapshot();
     const { canvasOffset: o, zoom: z } = live.current;
     const slot = addBoardCountRef.current++;
-    const pos = {
+    const basePos = {
       x: (200 - o.x) / z + (slot % 5) * 18,
       y: (120 - o.y) / z + (Math.floor(slot / 5) % 4) * 18,
     };
     let board: BoardItem;
-    if (kind === "array") board = { id: uid(), kind, position: pos, label: "Array", cells: [], selectedCells: [] };
-    else if (kind === "linkedlist") board = { id: uid(), kind, position: pos, label: "List", nodes: [], selectedNodes: [] };
+    if (kind === "array") board = {
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "Array",
+      cells: [{ id: uid(), value: "" }],
+      selectedCells: [],
+    };
+    else if (kind === "linkedlist") board = {
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "List",
+      nodes: [{ id: uid(), value: "" }],
+      selectedNodes: [],
+    };
     else if (kind === "hashmap") board = {
-    id: uid(),
-    kind: "hashmap",
-    position: pos,
-    label: "HashMap",
-    entries: [],
-    keyDraft: "",
-    valueDraft: "",
-    sortMode: "none",
-    size: { width: 420 },
-  };
-    else board = { id: uid(), kind: "node", position: pos, label: "" };
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "HashMap",
+      entries: [],
+      keyDraft: "",
+      valueDraft: "",
+      sortMode: "none",
+      size: { width: 320 },
+    };
+    else board = { id: uid(), kind: "node", position: basePos, label: "" };
+
+    const occupiedBounds = live.current.boardItems.map(item => getBoardBounds(item));
+    const boardBounds = getBoardBounds(board);
+    let resolvedPosition = basePos;
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const ring = Math.floor(attempt / 12);
+      const offsetX = ((attempt % 6) - 2.5) * ADD_PLACEMENT_STEP;
+      const offsetY = (Math.floor((attempt % 12) / 6) * 2 - 1) * ring * ADD_PLACEMENT_STEP;
+      const candidate = {
+        x: basePos.x + offsetX,
+        y: basePos.y + offsetY,
+      };
+      const candidateBounds = {
+        ...boardBounds,
+        x: candidate.x + (boardBounds.x - basePos.x) - ADD_PLACEMENT_PADDING,
+        y: candidate.y + (boardBounds.y - basePos.y) - ADD_PLACEMENT_PADDING,
+        width: boardBounds.width + ADD_PLACEMENT_PADDING * 2,
+        height: boardBounds.height + ADD_PLACEMENT_PADDING * 2,
+      };
+
+      if (!occupiedBounds.some(bounds => boundsOverlap(candidateBounds, bounds))) {
+        resolvedPosition = candidate;
+        break;
+      }
+    }
+
+    board = { ...board, position: resolvedPosition } as BoardItem;
     setBoardItems(p => [...p, board]);
     log(`➕ Added ${kind}`);
   }
@@ -387,14 +503,14 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   // ── Hashmap ops ────────────────────────────────────────────────────────────
 
   
-  function hmAdd(bid: string, blank = false) {
+  function hmAdd(bid: string) {
     const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard | undefined
     if (!hm) return
-    if (!blank && !hm.keyDraft.trim()) return
+    const newKey = hm.keyDraft.trim()
+    const newValue = hm.valueDraft.trim()
+    if (!newKey || !newValue) return
 
-    const newKey = blank ? "" : hm.keyDraft.trim()
-    // Only check duplicates for non-blank entries with a key
-    if (!blank && newKey && hm.entries.some(e => e.key === newKey)) {
+    if (hm.entries.some(e => e.key === newKey)) {
       setHmDupAlert({ bid, key: newKey })
       return
     }
@@ -403,19 +519,20 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
     const entry: HashEntry = {
       id: uid(),
       key: newKey,
-      value: blank ? "" : hm.valueDraft,
+      value: newValue,
     }
     setBoardItems(p =>
       p.map(b =>
         b.id !== bid ? b : {
           ...(b as HashmapBoard),
           entries: [...(b as HashmapBoard).entries, entry],
-          keyDraft: blank ? (b as HashmapBoard).keyDraft : "",
-          valueDraft: blank ? (b as HashmapBoard).valueDraft : "",
+          keyDraft: "",
+          valueDraft: "",
         }
       )
     )
-    log(blank ? "HM blank entry added" : `HM set ${entry.key}:${entry.value}`)
+    setHmDupAlert(null)
+    log(`HM set ${entry.key}:${entry.value}`)
   }
 
   function hmRemove(bid: string, eid: string, key: string) {
@@ -434,6 +551,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   }
 
   function hmUpdateDraft(bid: string, field: "keyDraft" | "valueDraft", val: string) {
+    if (hmDupAlert?.bid === bid) setHmDupAlert(null)
     setBoardItems(p =>
       p.map(b =>
         b.id !== bid
@@ -585,10 +703,16 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
     y: (cy - live.current.canvasOffset.y) / live.current.zoom,
   });
 
+  const isDragHandleTarget = (target: EventTarget | null) =>
+    target instanceof HTMLElement && !!target.closest("[data-drag-handle]");
+
   function handleCanvasDown(e: React.PointerEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
     if (target.closest("[data-card]") || target.closest("[data-annotation]")) return;
     const { activeTool: tool } = live.current;
+
+    setSelectedBoardId(null);
+    setAnnotations(p => p.map(a => a.selected ? { ...a, selected: false } : a));
 
     if (tool === "arrow") {
       const { x, y } = clientToCanvas(e.clientX, e.clientY);
@@ -605,7 +729,6 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
       setActiveTool("select");
       return;
     }
-    setSelectedBoardId(null);
     setDragState({ kind: "pan", startClientX: e.clientX, startClientY: e.clientY, startOffsetX: live.current.canvasOffset.x, startOffsetY: live.current.canvasOffset.y });
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -653,6 +776,13 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
         const fromNode = getNodeById(ds.sourceNodeId);
         const toNode = hoveredNodeId ? getNodeById(hoveredNodeId) : findNearbyNode(ds.currentX, ds.currentY, live.current.boardItems);
         if (fromNode && toNode && fromNode.id !== toNode.id) {
+          const isDirected = edgeMode === "directed";
+          if (hasMatchingGraphEdge(live.current.annotations, fromNode.id, toNode.id, isDirected)) {
+            log(isDirected ? "↺ Edge already exists" : "↺ Undirected edge already exists");
+            setHoveredNodeId(null);
+            setDragState(null);
+            return;
+          }
           const start = getNodeCenter(fromNode);
           const end = getNodeCenter(toNode);
           snapshot();
@@ -667,10 +797,10 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             selected: false,
             fromNodeId: fromNode.id,
             toNodeId: toNode.id,
-            directed: edgeMode === "directed",
+            directed: isDirected,
           };
           setAnnotations(p => [...p, ann]);
-          log(`${edgeMode === "directed" ? "→" : "↔"} Connected ${fromNode.label || "?"} ${edgeMode === "directed" ? "→" : "↔"} ${toNode.label || "?"}`);
+          log(`${isDirected ? "→" : "↔"} Connected ${fromNode.label || "?"} ${isDirected ? "→" : "↔"} ${toNode.label || "?"}`);
         }
       } else if (dragDistance > 15) {
         const items = live.current.boardItems;
@@ -695,7 +825,6 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
         }
       }
       setHoveredNodeId(null);
-      setActiveTool("select");
     }
     setDragState(null);
   }
@@ -777,6 +906,13 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
 
   const previewArrow = dragState?.kind === "arrow-draw" ? dragState : null;
   const connectedNodeIds = getConnectedNodeIds(annotations);
+  const selectedGraphEdges = annotations.filter(
+    (ann): ann is ArrowAnnotation =>
+      ann.kind === "arrow" &&
+      ann.selected &&
+      !!ann.fromNodeId &&
+      !!ann.toNodeId,
+  );
   const selectedNode =
     selectedBoardId && boardItems.find(b => b.id === selectedBoardId)?.kind === "node"
       ? boardItems.find(b => b.id === selectedBoardId) as GraphNode
@@ -786,13 +922,24 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   const nodeHighlightBg = (h?: string) => h === "current" ? "#fbbf24" : h === "visited" ? "#86efac" : "white";
   const nodeHighlightBorder = (h?: string) => h === "current" ? "#d97706" : h === "visited" ? "#16a34a" : "#8b5cf6";
 
-  // ─── Shared chrome styles (Miro-like, unified) ───────────────────────────
-  const chromeBtnBase = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
-  const chromeBtn = (active = false) =>
-    `${chromeBtnBase} ${active ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300" : ""}`;
-  const chromeInput = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
-  const chromePanel = "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
-  const chromeMenuItem = "w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50";
+  // ─── Toolbar buttons style ────────────────────────────────────────────────
+  const tbBtn = (active = false) =>
+    `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
+  const dragHandleStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "2px 7px",
+    borderRadius: 999,
+    border: "1px solid #cbd5e1",
+    background: "rgba(255,255,255,0.94)",
+    color: "#475569",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    cursor: activeTool === "select" ? "grab" : "default",
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.08)",
+  };
 
   return (
     <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
@@ -828,9 +975,14 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
-        <span className="text-xs text-slate-400">Edges:</span>
-        <button onClick={() => setGraphEdgeMode("directed")} className={chromeBtn(edgeMode === "directed")}>A → B</button>
-        <button onClick={() => setGraphEdgeMode("undirected")} className={chromeBtn(edgeMode === "undirected")}>A ↔ B</button>
+        {selectedGraphEdges.length > 0 && (
+          <>
+            <span className="text-xs text-slate-400">Edges:</span>
+            <button onClick={() => setGraphEdgeMode("directed")} className={tbBtn(edgeMode === "directed")}>A → B</button>
+            <button onClick={() => setGraphEdgeMode("undirected")} className={tbBtn(edgeMode === "undirected")}>A ↔ B</button>
+            <div className="w-px h-5 bg-slate-200 mx-1" />
+          </>
+        )}
 
         {activeTool === "arrow" && !selectedNode && (
           <span className="text-xs text-slate-500 ml-1">
@@ -843,8 +995,6 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             Drag from {selectedNode.label || "selected node"} to connect
           </span>
         )}
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Undo/Redo */}
         <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
@@ -959,8 +1109,15 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                 const marker = ar.selected ? "url(#ah-sel)" : isGraph ? "url(#ah-graph)" : "url(#ah)";
                 return (
                   <g key={ar.id} style={{ pointerEvents: "stroke" }} data-annotation
-                    onClick={() => {
-                      setAnnotations(p => p.map(x => x.id === ar.id ? { ...x, selected: !ar.selected } : x));
+                    onClick={(e) => {
+                      const isMultiSelect = e.ctrlKey || e.metaKey;
+                      setAnnotations(p => p.map(x => {
+                        if (x.kind !== "arrow") return x;
+                        if (x.id === ar.id) {
+                          return { ...x, selected: isMultiSelect ? !ar.selected : true };
+                        }
+                        return isMultiSelect ? x : { ...x, selected: false };
+                      }));
                       setEdgeMode(ar.directed === false ? "undirected" : "directed");
                     }}
                     onDoubleClick={() => removeAnnotation(ar.id)}>
@@ -1001,11 +1158,19 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
               return (
                 <div key={ab.id} data-card
                   style={{ position: "absolute", left: ab.position.x, top: ab.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "INPUT") { setSelectedBoardId(ab.id); handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y); } }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    setSelectedBoardId(ab.id);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y);
+                  }}
                   onClick={() => setSelectedBoardId(ab.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   {/* Label row */}
-                  <div className="flex items-center gap-1 mb-1">
+                  <div className="flex items-center gap-1 mb-5">
                     <input value={ab.label} onChange={e => setBoardItems(p => p.map(b => b.id === ab.id ? { ...b, label: e.target.value } as ArrayBoard : b))}
                       onPointerDown={e => e.stopPropagation()}
                       className="text-xs font-bold text-blue-600 bg-transparent outline-none w-24" />
@@ -1056,11 +1221,19 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
               return (
                 <div key={ll.id} data-card
                   style={{ position: "absolute", left: ll.position.x, top: ll.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "INPUT") { setSelectedBoardId(ll.id); handleCardDragStart(e, ll.id, false, ll.position.x, ll.position.y); } }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    setSelectedBoardId(ll.id);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ll.id, false, ll.position.x, ll.position.y);
+                  }}
                   onClick={() => setSelectedBoardId(ll.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   {/* Header */}
-                  <div className="flex items-center gap-1 mb-1">
+                  <div className="flex items-center gap-1 mb-4">
                     <input value={ll.label} onChange={e => setBoardItems(p => p.map(b => b.id === ll.id ? { ...b, label: e.target.value } as LinkedListBoard : b))}
                       onPointerDown={e => e.stopPropagation()}
                       className="text-xs font-bold text-green-700 bg-transparent outline-none w-24" />
@@ -1077,6 +1250,27 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                   </div>
                   {/* Nodes row */}
                   <div className="flex items-center gap-0" onDoubleClick={() => removeBoard(ll.id)}>
+                    <div
+                      style={{
+                        padding: "0 10px",
+                        height: 28,
+                        borderRadius: 999,
+                        border: "1.5px solid #4ade80",
+                        background: "#f0fdf4",
+                        color: "#15803d",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginRight: 6,
+                        userSelect: "none",
+                      }}
+                      title="Linked list head"
+                    >
+                      Head
+                    </div>
+                    <span style={{ fontSize: 14, color: "#86efac", margin: "0 4px 0 0", userSelect: "none" }}>→</span>
                     {ll.nodes.map((node, idx) => {
                       const sel = ll.selectedNodes.includes(node.id);
                       let anim: React.CSSProperties = {};
@@ -1124,18 +1318,21 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                     left: hm.position.x,
                     top: hm.position.y,
                     width: hm.size.width,
-                    minWidth: 240,
+                    minWidth: 320,
                     userSelect: "none",
                     animation: "fadeSlideIn 0.2s ease",
                   }}
                   onPointerDown={e => {
-                    if (!["INPUT", "BUTTON", "SELECT"].includes((e.target as HTMLElement).tagName)) {
-                      setSelectedBoardId(hm.id)
-                      handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y)
-                    }
+                    if (["INPUT", "BUTTON", "SELECT"].includes((e.target as HTMLElement).tagName)) return
+                    setSelectedBoardId(hm.id)
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y)
                   }}
                   onClick={() => setSelectedBoardId(hm.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0, zIndex: 1 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   <div
                     style={{
                       background: "white",
@@ -1147,7 +1344,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                       display: "flex",
                       flexDirection: "column",
                       resize: "horizontal",
-                      minWidth: 240,
+                      minWidth: 320,
                     }}
                     onMouseUp={e => {
                       const el = e.currentTarget
@@ -1287,7 +1484,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                     </div>
 
                     <div
-                      className="flex gap-1 p-2"
+                      className="flex gap-1 p-2 flex-wrap"
                       style={{ borderTop: hm.entries.length ? "1px solid #fed7aa" : undefined }}
                     >
                       <input
@@ -1297,7 +1494,8 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
                         placeholder="key"
                         style={{
-                          flex: 1,
+                          flex: "1 1 130px",
+                          minWidth: 0,
                           fontSize: 11,
                           padding: "3px 6px",
                           border: "1px solid #fed7aa",
@@ -1314,7 +1512,8 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
                         placeholder="value"
                         style={{
-                          flex: 1,
+                          flex: "1 1 110px",
+                          minWidth: 0,
                           fontSize: 11,
                           padding: "3px 6px",
                           border: "1px solid #fed7aa",
@@ -1324,43 +1523,11 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                         }}
                       />
 
-                      {hmDupAlert?.bid === hm.id && (
-                        <div
-                          onPointerDown={e => e.stopPropagation()}
-                          style={{
-                            position: "absolute",
-                            left: "calc(100% + 8px)",
-                            top: 0,
-                            background: "white",
-                            border: "1.5px solid #fca5a5",
-                            borderRadius: 8,
-                            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-                            padding: "8px 10px",
-                            width: 200,
-                            fontSize: 12,
-                            color: "#9a3412",
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 6,
-                            zIndex: 10,
-                          }}
-                        >
-                          <span style={{ flex: 1 }}>
-                            <strong>Duplicate key:</strong> "{hmDupAlert.key}" already exists in this HashMap.
-                          </span>
-                          <button
-                            onClick={() => setHmDupAlert(null)}
-                            style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}
-                            onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
-                            onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
-                          >×</button>
-                        </div>
-                      )}
-
                       <button
                         onPointerDown={e => e.stopPropagation()}
-                        onClick={() => hmAdd(hm.id, true)}
+                        onClick={() => hmAdd(hm.id)}
                         style={{
+                          flex: "0 0 auto",
                           width: 28,
                           height: 28,
                           borderRadius: "50%",
@@ -1375,10 +1542,40 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                         }}
                         onMouseEnter={e => (e.currentTarget.style.color = "#ea580c")}
                         onMouseLeave={e => (e.currentTarget.style.color = "#f97316")}
-                        title="Add blank entry"
+                        title="Add entry"
                       >
                         +
                       </button>
+
+                      {hmDupAlert?.bid === hm.id && (
+                        <div
+                          onPointerDown={e => e.stopPropagation()}
+                          style={{
+                            flexBasis: "100%",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 8,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            border: "1px solid #fca5a5",
+                            background: "#fff7f7",
+                            color: "#9a3412",
+                            fontSize: 12,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          <span style={{ flex: 1 }}>
+                            <strong>Duplicate key.</strong> &quot;{hmDupAlert.key}&quot; already exists in this HashMap.
+                          </span>
+                          <button
+                            onClick={() => setHmDupAlert(null)}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
+                            title="Dismiss"
+                          >×</button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1403,12 +1600,16 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                       return;
                     }
                     setSelectedBoardId(nb.id);
-                    handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y);
                   }}
                   onDoubleClick={() => removeBoard(nb.id)}
                   onClick={() => setSelectedBoardId(nb.id)}
                   title="Double-click to remove"
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -24, left: "50%", transform: "translateX(-50%)", zIndex: 1 }}>
+                    <span>⋮⋮</span>
+                    <span>Move</span>
+                  </div>
                   <div style={{
                     width: NODE_RADIUS * 2, height: NODE_RADIUS * 2, borderRadius: "50%",
                     background: bg, border: `2px solid ${border}`,
@@ -1446,11 +1647,18 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
               return (
                 <div key={ta.id} data-annotation
                   style={{ position: "absolute", left: ta.x, top: ta.y, width: ta.width, animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "TEXTAREA") handleCardDragStart(e, ta.id, true, ta.x, ta.y); }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ta.id, true, ta.x, ta.y);
+                  }}
                   onDoubleClick={e => { if ((e.target as HTMLElement).tagName !== "TEXTAREA") removeAnnotation(ta.id); }}
                   title="Double-click border to remove"
                 >
                   <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", position: "relative" }}>
+                    <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -12, left: 10, zIndex: 1 }}>
+                      <span>⋮⋮</span>
+                      <span>Drag</span>
+                    </div>
                     <textarea value={ta.text} onChange={e => setAnnotations(p => p.map(x => x.id === ta.id ? { ...x, text: e.target.value } : x))}
                       placeholder="Note…"
                       style={{ width: "100%", minHeight: 64, background: "transparent", border: "none", outline: "none", resize: "both", color: "#92400e", fontSize: 12, padding: "8px 28px 8px 10px", fontFamily: "inherit" }} />

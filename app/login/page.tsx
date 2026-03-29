@@ -62,7 +62,6 @@ export default function LoginPage() {
         onSubmit={handleSubmit}
         className={`relative z-10 w-full max-w-sm space-y-4 p-6 ${isSpace ? "rounded-2xl border border-sky-200/25 bg-slate-950/55 shadow-[0_20px_60px_rgba(2,6,23,0.55)] backdrop-blur-md" : "rounded-xl border border-slate-200 bg-white shadow-sm"}`}
       >
-        {isSpace && <p className="text-xs font-medium uppercase tracking-[0.18em] text-sky-200/80">Mission Access</p>}
         <h1 className={`text-xl font-semibold ${isSpace ? "text-slate-50" : "text-slate-900"}`}>Login</h1>
 
         <label className={`block text-sm ${isSpace ? "text-slate-200" : "text-slate-700"}`}>

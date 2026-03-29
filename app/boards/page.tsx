@@ -16,6 +16,7 @@ type WhiteboardRow = {
 };
 
 const LOCAL_DRAFT_KEY = "fishbowl_local_draft_v1";
+const TEMP_AUTH_BYPASS = true;
 
 function emptyBoardState(name = "Untitled Whiteboard"): PersistedBoardState {
   return {
@@ -114,6 +115,16 @@ export default function BoardsPage() {
           window.localStorage.removeItem(LOCAL_DRAFT_KEY);
         }
       }
+    }
+
+    if (TEMP_AUTH_BYPASS) {
+      setDbAvailable(false);
+      setUserId("local-dev-user");
+      setUserEmail("Local development mode");
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
     }
 
     void (async () => {
@@ -261,6 +272,11 @@ export default function BoardsPage() {
   }
 
   async function logout() {
+    if (TEMP_AUTH_BYPASS) {
+      setView("home");
+      return;
+    }
+
     await supabase.auth.signOut();
     router.replace("/login");
   }
@@ -361,6 +377,12 @@ export default function BoardsPage() {
           {error && (
             <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {error}
+            </div>
+          )}
+
+          {TEMP_AUTH_BYPASS && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Auth is temporarily disabled. Boards are running in local-only mode until Supabase env keys are available.
             </div>
           )}
 

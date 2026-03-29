@@ -952,9 +952,9 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
         <button
           type="button"
           onClick={onBackToHome}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm cursor-pointer"
+          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 transition-colors hover:bg-slate-50 hover:border-slate-300 cursor-pointer"
           aria-label="Go back to home"
-          title="Go to home"
+          title="Home"
         >
           {/* <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span> */}
           <span className="text-sm font-extrabold tracking-tight text-slate-900">fishbowl</span>

@@ -10,7 +10,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="fixed left-5 top-25 z-[70] cursor-pointer"
+      className="fixed left-5 bottom-10 z-[70] cursor-pointer"
       title={isSpace ? "Switch to Light theme" : "Switch to Space theme"}
       aria-label={isSpace ? "Switch to Light theme" : "Switch to Space theme"}
       style={{
@@ -26,7 +26,6 @@ export default function ThemeToggle() {
           : "inset 0 2px 6px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.15)",
         border: "none",
         transition: "background 0.4s ease",
-        position: "relative",
       }}
     >
       {/* Inner track — no overflow hidden so thumb isn't clipped */}

@@ -278,10 +278,6 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   useEffect(() => { live.current = { zoom, canvasOffset, boardItems, annotations, activeTool, dragState }; });
 
   useEffect(() => {
-    syncUidCounter(boardItems, annotations, history);
-  }, []);
-
-  useEffect(() => {
     if (!onStateChange) return;
     onStateChange({
       version: 1,
@@ -925,6 +921,12 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   // ─── Toolbar buttons style ────────────────────────────────────────────────
   const tbBtn = (active = false) =>
     `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
+  const chromeBtnBase = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
+  const chromeBtn = (active = false) =>
+    `${chromeBtnBase} ${active ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300" : ""}`;
+  const chromeInput = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
+  const chromePanel = "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
+  const chromeMenuItem = "w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50";
   const dragHandleStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",

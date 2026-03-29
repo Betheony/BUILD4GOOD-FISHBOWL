@@ -64,10 +64,38 @@ type DragState =
 type UndoSnapshot = { items: BoardItem[]; annotations: AnnotationItem[] };
 type HistoryEntry = { id: string; msg: string };
 
+export type PersistedBoardState = {
+  version: 1;
+  boardItems: BoardItem[];
+  annotations: AnnotationItem[];
+  canvasOffset: { x: number; y: number };
+  zoom: number;
+  whiteboardName: string;
+  edgeMode: EdgeMode;
+};
+
+type VisualizerWorkbenchProps = {
+  initialState?: PersistedBoardState | null;
+  onStateChange?: (state: PersistedBoardState) => void;
+  onBackToHome?: () => void;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 let _uid = 0;
 const uid = () => `id-${++_uid}`;
+
+function syncUidCounter(...collections: Array<Array<{ id: string }>>) {
+  let maxId = _uid;
+  for (const collection of collections) {
+    for (const item of collection) {
+      const m = /^id-(\d+)$/.exec(item.id);
+      if (!m) continue;
+      maxId = Math.max(maxId, Number(m[1]));
+    }
+  }
+  _uid = maxId;
+}
 
 function cloneItems(items: BoardItem[]): BoardItem[] {
   return items.map(item => {
@@ -153,11 +181,11 @@ function getConnectedNodeIds(annotations: AnnotationItem[]): Set<string> {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function VisualizerWorkbench() {
-  const [boardItems, setBoardItems] = useState<BoardItem[]>([]);
-  const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
-  const [canvasOffset, setCanvasOffset] = useState({ x: 80, y: 80 });
-  const [zoom, setZoom] = useState(1);
+export default function VisualizerWorkbench({ initialState, onStateChange, onBackToHome }: VisualizerWorkbenchProps) {
+  const [boardItems, setBoardItems] = useState<BoardItem[]>(() => cloneItems(initialState?.boardItems ?? []));
+  const [annotations, setAnnotations] = useState<AnnotationItem[]>(() => cloneAnnotations(initialState?.annotations ?? []));
+  const [canvasOffset, setCanvasOffset] = useState(() => initialState?.canvasOffset ?? { x: 80, y: 80 });
+  const [zoom, setZoom] = useState(() => initialState?.zoom ?? 1);
   const [activeTool, setActiveTool] = useState<Tool>("select");
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -165,8 +193,8 @@ export default function VisualizerWorkbench() {
   const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
-  const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
-  const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
+  const [whiteboardName, setWhiteboardName] = useState(() => initialState?.whiteboardName ?? "Untitled Whiteboard");
+  const [edgeMode, setEdgeMode] = useState<EdgeMode>(() => initialState?.edgeMode ?? "directed");
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [hmDupAlert, setHmDupAlert] = useState<{ bid: string; key: string } | null>(null)
@@ -174,6 +202,23 @@ export default function VisualizerWorkbench() {
   const addBoardCountRef = useRef(0);
   const live = useRef({ zoom, canvasOffset, boardItems, annotations, activeTool, dragState });
   useEffect(() => { live.current = { zoom, canvasOffset, boardItems, annotations, activeTool, dragState }; });
+
+  useEffect(() => {
+    syncUidCounter(boardItems, annotations, history);
+  }, []);
+
+  useEffect(() => {
+    if (!onStateChange) return;
+    onStateChange({
+      version: 1,
+      boardItems: cloneItems(boardItems),
+      annotations: cloneAnnotations(annotations),
+      canvasOffset,
+      zoom,
+      whiteboardName,
+      edgeMode,
+    });
+  }, [boardItems, annotations, canvasOffset, zoom, whiteboardName, edgeMode, onStateChange]);
 
   // ── History ────────────────────────────────────────────────────────────────
 
@@ -754,11 +799,17 @@ export default function VisualizerWorkbench() {
 
       {/* ── Toolbar ── */}
       <div className="no-print flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 select-none bg-white shadow-sm flex-wrap" style={{ zIndex: 50 }}>
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm" aria-label="Project branding">
+        <button
+          type="button"
+          onClick={onBackToHome}
+          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm cursor-pointer"
+          aria-label="Go back to home"
+          title="Go to home"
+        >
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span>
           <span className="text-sm font-extrabold tracking-tight text-slate-900">fishbowl</span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span>
-        </div>
+        </button>
         <input
           value={whiteboardName}
           onChange={e => setWhiteboardName(e.target.value)}

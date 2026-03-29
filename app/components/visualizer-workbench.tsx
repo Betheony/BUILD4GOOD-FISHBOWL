@@ -22,10 +22,18 @@ type LinkedListBoard = {
 
 type HashEntry = { id: string; key: string; value: string };
 type HashmapBoard = {
-  id: string; kind: "hashmap"; position: BoardPosition; label: string;
-  entries: HashEntry[]; keyDraft: string; valueDraft: string;
+  id: string
+  kind: "hashmap"
+  position: BoardPosition
+  label: string
+  entries: HashEntry[]
+  keyDraft: string
+  valueDraft: string
+  sortMode: "none" | "key" | "value"
+  size: {
+    width: number
+  }
 };
-
 type GraphNode = {
   id: string; kind: "node"; position: BoardPosition; label: string;
   highlight?: "current" | "visited" | "queued";
@@ -65,7 +73,12 @@ function cloneItems(items: BoardItem[]): BoardItem[] {
   return items.map(item => {
     if (item.kind === "array") return { ...item, cells: item.cells.map(c => ({ ...c })), selectedCells: [...item.selectedCells] };
     if (item.kind === "linkedlist") return { ...item, nodes: item.nodes.map(n => ({ ...n })), selectedNodes: [...item.selectedNodes] };
-    if (item.kind === "hashmap") return { ...item, entries: item.entries.map(e => ({ ...e })) };
+    if (item.kind === "hashmap")
+      return {
+        ...item,
+        entries: item.entries.map(e => ({ ...e })),
+        size: { ...item.size },
+      }
     return { ...item };
   });
 }
@@ -208,7 +221,17 @@ export default function VisualizerWorkbench() {
     let board: BoardItem;
     if (kind === "array") board = { id: uid(), kind, position: pos, label: "Array", cells: [], selectedCells: [] };
     else if (kind === "linkedlist") board = { id: uid(), kind, position: pos, label: "List", nodes: [], selectedNodes: [] };
-    else if (kind === "hashmap") board = { id: uid(), kind, position: pos, label: "HashMap", entries: [], keyDraft: "", valueDraft: "" };
+    else if (kind === "hashmap") board = {
+    id: uid(),
+    kind: "hashmap",
+    position: pos,
+    label: "HashMap",
+    entries: [],
+    keyDraft: "",
+    valueDraft: "",
+    sortMode: "none",
+    size: { width: 420 },
+  };
     else board = { id: uid(), kind: "node", position: pos, label: "" };
     setBoardItems(p => [...p, board]);
     log(`➕ Added ${kind}`);
@@ -317,27 +340,113 @@ export default function VisualizerWorkbench() {
 
   // ── Hashmap ops ────────────────────────────────────────────────────────────
 
-  function hmAdd(bid: string) {
-    const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard;
-    if (!hm || !hm.keyDraft.trim()) return;
-    snapshot();
-    const entry: HashEntry = { id: uid(), key: hm.keyDraft.trim(), value: hm.valueDraft };
-    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: [...(b as HashmapBoard).entries, entry], keyDraft: "", valueDraft: "" } as HashmapBoard));
-    log(`+ HM set "${entry.key}" = "${entry.value}"`);
+  function hmAdd(bid: string, blank = false) {
+    const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard | undefined
+    if (!hm) return
+
+    if (!blank && !hm.keyDraft.trim()) return
+
+    snapshot()
+
+    const entry: HashEntry = {
+      id: uid(),
+      key: blank ? "" : hm.keyDraft.trim(),
+      value: blank ? "" : hm.valueDraft,
+    }
+
+    setBoardItems(p =>
+      p.map(b =>
+        b.id !== bid
+          ? b
+          : {
+              ...(b as HashmapBoard),
+              entries: [...(b as HashmapBoard).entries, entry],
+              keyDraft: blank ? (b as HashmapBoard).keyDraft : "",
+              valueDraft: blank ? (b as HashmapBoard).valueDraft : "",
+            }
+      )
+    )
+
+    log(blank ? "HM blank entry added" : `HM set ${entry.key}:${entry.value}`)
   }
 
   function hmRemove(bid: string, eid: string, key: string) {
-    snapshot();
-    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: (b as HashmapBoard).entries.filter(e => e.id !== eid) } as HashmapBoard));
-    log(`✖ HM removed key "${key}"`);
+    snapshot()
+    setBoardItems(p =>
+      p.map(b =>
+        b.id !== bid
+          ? b
+          : {
+              ...(b as HashmapBoard),
+              entries: (b as HashmapBoard).entries.filter(e => e.id !== eid),
+            }
+      )
+    )
+    log(`HM removed key ${key}`)
   }
 
   function hmUpdateDraft(bid: string, field: "keyDraft" | "valueDraft", val: string) {
-    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, [field]: val } as HashmapBoard));
+    setBoardItems(p =>
+      p.map(b =>
+        b.id !== bid
+          ? b
+          : {
+              ...(b as HashmapBoard),
+              [field]: val,
+            }
+      )
+    )
   }
 
   function hmUpdateEntry(bid: string, eid: string, field: "key" | "value", val: string) {
-    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: (b as HashmapBoard).entries.map(e => e.id === eid ? { ...e, [field]: val } : e) } as HashmapBoard));
+    setBoardItems(p =>
+      p.map(b =>
+        b.id !== bid
+          ? b
+          : {
+              ...(b as HashmapBoard),
+              entries: (b as HashmapBoard).entries.map(e =>
+                e.id === eid ? { ...e, [field]: val } : e
+              ),
+            }
+      )
+    )
+  }
+
+  function hmSetSort(bid: string, sortMode: "none" | "key" | "value") {
+    snapshot()
+    setBoardItems(p =>
+      p.map(b => {
+        if (b.id !== bid) return b
+        const hm = b as HashmapBoard
+        const entries =
+          sortMode === "none"
+            ? hm.entries
+            : [...hm.entries].sort((a, c) =>
+                (sortMode === "key" ? a.key : a.value).localeCompare(
+                  sortMode === "key" ? c.key : c.value
+                )
+              )
+
+        return {
+          ...hm,
+          sortMode,
+          entries,
+        }
+      })
+    )
+    log(sortMode === "none" ? "HM sort cleared" : `HM sorted by ${sortMode}`)
+  }
+
+  function hmResize(bid: string, width: number) {
+    setBoardItems(p =>
+      p.map(b =>
+        b.id !== bid ? b : {
+          ...(b as HashmapBoard),
+          size: { width: Math.max(240, width) },
+        }
+      )
+    )
   }
 
   // ── Graph ops ──────────────────────────────────────────────────────────────
@@ -904,73 +1013,241 @@ export default function VisualizerWorkbench() {
 
             {/* ── Hashmap boards ── */}
             {boardItems.filter(b => b.kind === "hashmap").map(item => {
-              const hm = item as HashmapBoard;
+              const hm = item as HashmapBoard
               return (
-                <div key={hm.id} data-card
-                  style={{ position: "absolute", left: hm.position.x, top: hm.position.y, minWidth: 200, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if (!["INPUT", "BUTTON"].includes((e.target as HTMLElement).tagName)) { setSelectedBoardId(hm.id); handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y); } }}
+                <div
+                  key={hm.id}
+                  data-card
+                  style={{
+                    position: "absolute",
+                    left: hm.position.x,
+                    top: hm.position.y,
+                    width: hm.size.width,
+                    minWidth: 240,
+                    userSelect: "none",
+                    animation: "fadeSlideIn 0.2s ease",
+                  }}
+                  onPointerDown={e => {
+                    if (!["INPUT", "BUTTON", "SELECT"].includes((e.target as HTMLElement).tagName)) {
+                      setSelectedBoardId(hm.id)
+                      handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y)
+                    }
+                  }}
                   onClick={() => setSelectedBoardId(hm.id)}
                 >
-                  <div style={{ background: "white", borderRadius: 8, border: "1.5px solid #fed7aa", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", overflow: "hidden" }}>
-                    {/* Header */}
-                    <div className="flex items-center gap-1 px-2 py-1.5" style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa" }}>
-                      <input value={hm.label} onChange={e => setBoardItems(p => p.map(b => b.id === hm.id ? { ...b, label: e.target.value } as HashmapBoard : b))}
+                  <div
+                    style={{
+                      background: "white",
+                      borderRadius: 8,
+                      border: "1.5px solid #fed7aa",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                      overflow: "hidden",
+                      width: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      resize: "horizontal",
+                      minWidth: 240,
+                    }}
+                    onMouseUp={e => {
+                      const el = e.currentTarget
+                      hmResize(hm.id, el.offsetWidth)
+                    }}
+                  >
+                    <div
+                      className="flex items-center gap-1 px-2 py-1.5"
+                      style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa" }}
+                    >
+                      <input
+                        value={hm.label}
+                        onChange={e =>
+                          setBoardItems(p =>
+                            p.map(b => (b.id === hm.id ? { ...b, label: e.target.value } as HashmapBoard : b))
+                          )
+                        }
                         onPointerDown={e => e.stopPropagation()}
-                        className="text-xs font-bold text-orange-700 bg-transparent outline-none flex-1" />
+                        className="text-xs font-bold text-orange-700 bg-transparent outline-none flex-1"
+                      />
                       <span className="text-xs text-orange-400">{hm.entries.length} entries</span>
-                      <button onPointerDown={e => e.stopPropagation()} onClick={() => removeBoard(hm.id)} className="text-slate-300 hover:text-red-500 text-xs">×</button>
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => hmSetSort(hm.id, hm.sortMode === "key" ? "none" : "key")}
+                        className="text-xs px-1.5 py-0.5 rounded bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200"
+                      >
+                        Key
+                      </button>
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => hmSetSort(hm.id, hm.sortMode === "value" ? "none" : "value")}
+                        className="text-xs px-1.5 py-0.5 rounded bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200"
+                      >
+                        Val
+                      </button>
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => removeBoard(hm.id)}
+                        className="text-slate-300 hover:text-red-500 text-xs"
+                      >
+                        ×
+                      </button>
                     </div>
-                    {/* Table */}
-                    {hm.entries.length > 0 && (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                        <thead>
-                          <tr style={{ background: "#fff7ed" }}>
-                            <th style={{ padding: "3px 8px", textAlign: "left", color: "#9a3412", fontWeight: 600, borderBottom: "1px solid #fed7aa", width: "45%" }}>key</th>
-                            <th style={{ padding: "3px 8px", textAlign: "left", color: "#9a3412", fontWeight: 600, borderBottom: "1px solid #fed7aa" }}>value</th>
-                            <th style={{ width: 20 }} />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {hm.entries.map(entry => (
-                            <tr key={entry.id} style={{ borderBottom: "1px solid #ffedd5" }}
-                              onDoubleClick={() => hmRemove(hm.id, entry.id, entry.key)}
-                              title="Double-click to remove">
-                              <td style={{ padding: "3px 8px" }}>
-                                <input value={entry.key} onChange={e => hmUpdateEntry(hm.id, entry.id, "key", e.target.value)}
-                                  onPointerDown={e => e.stopPropagation()}
-                                  style={{ width: "100%", background: "none", border: "none", outline: "none", fontSize: 12, color: "#c2410c", fontWeight: 600 }} />
-                              </td>
-                              <td style={{ padding: "3px 8px" }}>
-                                <input value={entry.value} onChange={e => hmUpdateEntry(hm.id, entry.id, "value", e.target.value)}
-                                  onPointerDown={e => e.stopPropagation()}
-                                  style={{ width: "100%", background: "none", border: "none", outline: "none", fontSize: 12, color: "#1e293b" }} />
-                              </td>
-                              <td>
-                                <button onPointerDown={e => e.stopPropagation()} onClick={() => hmRemove(hm.id, entry.id, entry.key)}
-                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#fca5a5", fontSize: 11 }}
-                                  onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")} onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}>×</button>
-                              </td>
+
+                    <div>
+                      {hm.entries.length > 0 && (
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: "#fff7ed" }}>
+                              <th
+                                style={{
+                                  padding: "3px 8px",
+                                  textAlign: "left",
+                                  color: "#9a3412",
+                                  fontWeight: 600,
+                                  borderBottom: "1px solid #fed7aa",
+                                  width: "45%",
+                                }}
+                              >
+                                key
+                              </th>
+                              <th
+                                style={{
+                                  padding: "3px 8px",
+                                  textAlign: "left",
+                                  color: "#9a3412",
+                                  fontWeight: 600,
+                                  borderBottom: "1px solid #fed7aa",
+                                }}
+                              >
+                                value
+                              </th>
+                              <th style={{ width: 20 }} />
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                    {/* Add row */}
-                    <div className="flex gap-1 p-2" style={{ borderTop: hm.entries.length ? "1px solid #fed7aa" : undefined }}>
-                      <input value={hm.keyDraft} onChange={e => hmUpdateDraft(hm.id, "keyDraft", e.target.value)}
+                          </thead>
+                          <tbody>
+                            {hm.entries.map(entry => (
+                              <tr
+                                key={entry.id}
+                                style={{ borderBottom: "1px solid #ffedd5" }}
+                                onDoubleClick={() => hmRemove(hm.id, entry.id, entry.key)}
+                                title="Double-click to remove"
+                              >
+                                <td style={{ padding: "3px 8px" }}>
+                                  <input
+                                    value={entry.key}
+                                    onChange={e => hmUpdateEntry(hm.id, entry.id, "key", e.target.value)}
+                                    onPointerDown={e => e.stopPropagation()}
+                                    style={{
+                                      width: "100%",
+                                      background: "none",
+                                      border: "none",
+                                      outline: "none",
+                                      fontSize: 12,
+                                      color: "#c2410c",
+                                      fontWeight: 600,
+                                    }}
+                                  />
+                                </td>
+                                <td style={{ padding: "3px 8px" }}>
+                                  <input
+                                    value={entry.value}
+                                    onChange={e => hmUpdateEntry(hm.id, entry.id, "value", e.target.value)}
+                                    onPointerDown={e => e.stopPropagation()}
+                                    style={{
+                                      width: "100%",
+                                      background: "none",
+                                      border: "none",
+                                      outline: "none",
+                                      fontSize: 12,
+                                      color: "#1e293b",
+                                    }}
+                                  />
+                                </td>
+                                <td>
+                                  <button
+                                    onPointerDown={e => e.stopPropagation()}
+                                    onClick={() => hmRemove(hm.id, entry.id, entry.key)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      cursor: "pointer",
+                                      color: "#fca5a5",
+                                      fontSize: 11,
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                                    onMouseLeave={e => (e.currentTarget.style.color = "#fca5a5")}
+                                  >
+                                    ×
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+
+                    <div
+                      className="flex gap-1 p-2"
+                      style={{ borderTop: hm.entries.length ? "1px solid #fed7aa" : undefined }}
+                    >
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => hmAdd(hm.id, true)}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          border: "1.5px dashed #fdba74",
+                          background: "none",
+                          color: "#f97316",
+                          cursor: "pointer",
+                          fontSize: 16,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.color = "#ea580c")}
+                        onMouseLeave={e => (e.currentTarget.style.color = "#f97316")}
+                        title="Add blank entry"
+                      >
+                        +
+                      </button>
+                      <input
+                        value={hm.keyDraft}
+                        onChange={e => hmUpdateDraft(hm.id, "keyDraft", e.target.value)}
                         onPointerDown={e => e.stopPropagation()}
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
-                        placeholder="key" style={{ flex: 1, fontSize: 11, padding: "3px 6px", border: "1px solid #fed7aa", borderRadius: 4, outline: "none", color: "#c2410c", fontWeight: 600 }} />
-                      <input value={hm.valueDraft} onChange={e => hmUpdateDraft(hm.id, "valueDraft", e.target.value)}
+                        placeholder="key"
+                        style={{
+                          flex: 1,
+                          fontSize: 11,
+                          padding: "3px 6px",
+                          border: "1px solid #fed7aa",
+                          borderRadius: 4,
+                          outline: "none",
+                          color: "#c2410c",
+                          fontWeight: 600,
+                        }}
+                      />
+                      <input
+                        value={hm.valueDraft}
+                        onChange={e => hmUpdateDraft(hm.id, "valueDraft", e.target.value)}
                         onPointerDown={e => e.stopPropagation()}
                         onKeyDown={e => e.key === "Enter" && hmAdd(hm.id)}
-                        placeholder="value" style={{ flex: 1, fontSize: 11, padding: "3px 6px", border: "1px solid #fed7aa", borderRadius: 4, outline: "none", color: "#1e293b" }} />
-                      <button onPointerDown={e => e.stopPropagation()} onClick={() => hmAdd(hm.id)}
-                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: "#fed7aa", border: "none", cursor: "pointer", color: "#9a3412", fontWeight: 700 }}>+</button>
+                        placeholder="value"
+                        style={{
+                          flex: 1,
+                          fontSize: 11,
+                          padding: "3px 6px",
+                          border: "1px solid #fed7aa",
+                          borderRadius: 4,
+                          outline: "none",
+                          color: "#1e293b",
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
-              );
+              )
             })}
 
             {/* ── Graph nodes ── */}

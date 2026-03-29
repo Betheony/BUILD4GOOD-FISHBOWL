@@ -300,29 +300,6 @@ export default function VisualizerWorkbench() {
 
   // ── Hashmap ops ────────────────────────────────────────────────────────────
 
-  // function hmAdd(bid: string) {
-  //   const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard;
-  //   if (!hm || !hm.keyDraft.trim()) return;
-  //   snapshot();
-  //   const entry: HashEntry = { id: uid(), key: hm.keyDraft.trim(), value: hm.valueDraft };
-  //   setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: [...(b as HashmapBoard).entries, entry], keyDraft: "", valueDraft: "" } as HashmapBoard));
-  //   log(`+ HM set "${entry.key}" = "${entry.value}"`);
-  // }
-
-  // function hmRemove(bid: string, eid: string, key: string) {
-  //   snapshot();
-  //   setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: (b as HashmapBoard).entries.filter(e => e.id !== eid) } as HashmapBoard));
-  //   log(`✖ HM removed key "${key}"`);
-  // }
-
-  // function hmUpdateDraft(bid: string, field: "keyDraft" | "valueDraft", val: string) {
-  //   setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, [field]: val } as HashmapBoard));
-  // }
-
-  // function hmUpdateEntry(bid: string, eid: string, field: "key" | "value", val: string) {
-  //   setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, entries: (b as HashmapBoard).entries.map(e => e.id === eid ? { ...e, [field]: val } : e) } as HashmapBoard));
-  // }
-
   function hmAdd(bid: string, blank = false) {
     const hm = live.current.boardItems.find(b => b.id === bid) as HashmapBoard | undefined
     if (!hm) return

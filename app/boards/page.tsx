@@ -45,6 +45,7 @@ export default function BoardsPage() {
   const [dbAvailable, setDbAvailable] = useState(true);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedHashRef = useRef<string>("");
+  const uiButtonLabel = "text-sm font-medium leading-none";
 
   const persistLocalDraft = useCallback((state: PersistedBoardState | null) => {
     if (typeof window === "undefined") return;
@@ -298,9 +299,9 @@ export default function BoardsPage() {
             </div>
             <button
               onClick={() => void logout()}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
-              Logout
+              <span className={uiButtonLabel}>Logout</span>
             </button>
           </div>
 
@@ -348,7 +349,7 @@ export default function BoardsPage() {
                         onClick={() => void deleteBoard(board.id)}
                         className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
                       >
-                        Delete
+                        <span className={uiButtonLabel}>Delete</span>
                       </button>
                     </div>
                   </div>
@@ -385,7 +386,7 @@ export default function BoardsPage() {
                 onClick={createLocalDraft}
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
-                Create blank board
+                <span className={uiButtonLabel}>Create blank board</span>
               </button>
             </div>
           </div>

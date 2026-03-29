@@ -924,9 +924,10 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   const chromeBtnBase = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
   const chromeBtn = (active = false) =>
     `${chromeBtnBase} ${active ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300" : ""}`;
+  const chromeLabel = "text-sm font-medium leading-none";
   const chromeInput = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
   const chromePanel = "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
-  const chromeMenuItem = "w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50";
+  const chromeMenuItem = "w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50";
   const dragHandleStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -962,7 +963,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
         <input
           value={whiteboardName}
           onChange={e => setWhiteboardName(e.target.value)}
-          className={`${chromeInput} w-[170px]`}
+          className={`${chromeInput} w-[170px] text-sm font-medium leading-none`}
           aria-label="Whiteboard name"
         />
 
@@ -970,8 +971,11 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
 
         {/* Tools */}
         {(["select", "arrow", "text"] as Tool[]).map(t => (
-          <button key={t} onClick={() => setActiveTool(t)} className={chromeBtn(activeTool === t)}>
-            {t === "select" ? "↖ Select" : t === "arrow" ? "→ Arrow" : "T Text"}
+          <button key={t} onClick={() => setActiveTool(t)} className={`${chromeBtn(activeTool === t)} text-sm font-medium`}>
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden="true" className="text-xs leading-none">{t === "select" ? "↖" : t === "arrow" ? "→" : "T"}</span>
+              <span className={chromeLabel}>{t === "select" ? "Select" : t === "arrow" ? "Arrow" : "Text"}</span>
+            </span>
           </button>
         ))}
 
@@ -1003,11 +1007,11 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
         {/* Activity + Export */}
         <button
           onClick={() => setShowHistory(v => !v)}
-          className={chromeBtn(showHistory)}
+          className={`${chromeBtn(showHistory)} text-sm font-medium`}
           title="Activity"
           aria-label="Activity"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block" aria-hidden="true">
             <path d="M2 3.25h10M2 7h10M2 10.75h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
         </button>
@@ -1015,13 +1019,13 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
           <button
             onClick={() => setShowExportMenu(v => !v)}
             title="Export this board"
-            className={chromeBtn(showExportMenu)}
+            className={`${chromeBtn(showExportMenu)} text-sm font-medium`}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block mr-1 -mt-[1px]" aria-hidden="true">
               <path d="M7 1.5v7M4.5 6L7 8.5 9.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M2 10.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
-            Export
+            <span className={chromeLabel}>Export</span>
           </button>
           {showExportMenu && (
             <div className="absolute right-0 mt-1 w-40 rounded-md border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
@@ -1029,13 +1033,13 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                 onClick={() => { setShowExportMenu(false); exportPDF(); }}
                 className={chromeMenuItem}
               >
-                Save as PDF
+                <span className={chromeLabel}>Save as PDF</span>
               </button>
               <button
                 onClick={() => { setShowExportMenu(false); void exportImage(); }}
                 className={chromeMenuItem}
               >
-                Export as image
+                <span className={chromeLabel}>Export as image</span>
               </button>
             </div>
           )}
@@ -1690,7 +1694,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
           <div className="no-print flex flex-col border-l border-slate-200 bg-white" style={{ width: 200, overflow: "hidden" }}>
             <div className="px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between">
               <span>Activity</span>
-              <button onClick={() => setHistory([])} className={chromeBtn()}>Clear</button>
+              <button onClick={() => setHistory([])} className={chromeBtn()}><span className={chromeLabel}>Clear</span></button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1" style={{ scrollbarWidth: "thin" }}>
               {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No activity yet</p>}

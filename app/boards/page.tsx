@@ -321,7 +321,7 @@ export default function BoardsPage() {
         <div className="mx-auto w-full max-w-6xl px-6 py-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Build4Good Whiteboard</h1>
+              <h1 className="text-2xl font-semibold text-slate-900">Fishbowl Whiteboard</h1>
               <p className="text-sm text-slate-500">{userEmail}</p>
             </div>
             <button
@@ -333,7 +333,7 @@ export default function BoardsPage() {
           </div>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="text-sm font-medium text-slate-700 mb-3">Start from</p>
+            <p className="text-sm font-medium text-slate-700 mb-3">Template</p>
             <div className="flex flex-wrap gap-3">
               <div className="w-40">
                 <button

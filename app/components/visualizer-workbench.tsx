@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import type { AppTheme } from "@/app/components/theme-provider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,23 @@ type DragState =
 
 type UndoSnapshot = { items: BoardItem[]; annotations: AnnotationItem[] };
 type HistoryEntry = { id: string; msg: string };
+
+export type PersistedBoardState = {
+  version: 1;
+  boardItems: BoardItem[];
+  annotations: AnnotationItem[];
+  canvasOffset: { x: number; y: number };
+  zoom: number;
+  whiteboardName: string;
+  edgeMode: EdgeMode;
+};
+
+type VisualizerWorkbenchProps = {
+  initialState?: PersistedBoardState | null;
+  onStateChange?: (state: PersistedBoardState) => void;
+  onBackToHome?: () => void;
+  theme?: AppTheme;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -239,11 +257,12 @@ function getConnectedNodeIds(annotations: AnnotationItem[]): Set<string> {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function VisualizerWorkbench() {
-  const [boardItems, setBoardItems] = useState<BoardItem[]>([]);
-  const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
-  const [canvasOffset, setCanvasOffset] = useState({ x: 80, y: 80 });
-  const [zoom, setZoom] = useState(1);
+export default function VisualizerWorkbench({ initialState, onStateChange, onBackToHome, theme = "default" }: VisualizerWorkbenchProps) {
+  const isSpace = theme === "space";
+  const [boardItems, setBoardItems] = useState<BoardItem[]>(() => cloneItems(initialState?.boardItems ?? []));
+  const [annotations, setAnnotations] = useState<AnnotationItem[]>(() => cloneAnnotations(initialState?.annotations ?? []));
+  const [canvasOffset, setCanvasOffset] = useState(() => initialState?.canvasOffset ?? { x: 80, y: 80 });
+  const [zoom, setZoom] = useState(() => initialState?.zoom ?? 1);
   const [activeTool, setActiveTool] = useState<Tool>("select");
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -251,14 +270,28 @@ export default function VisualizerWorkbench() {
   const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
-  const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
-  const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
+  const [whiteboardName, setWhiteboardName] = useState(() => initialState?.whiteboardName ?? "Untitled Whiteboard");
+  const [edgeMode, setEdgeMode] = useState<EdgeMode>(() => initialState?.edgeMode ?? "directed");
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [hmDupAlert, setHmDupAlert] = useState<{ bid: string; key: string } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null);
   const addBoardCountRef = useRef(0);
   const live = useRef({ zoom, canvasOffset, boardItems, annotations, activeTool, dragState });
   useEffect(() => { live.current = { zoom, canvasOffset, boardItems, annotations, activeTool, dragState }; });
+
+  useEffect(() => {
+    if (!onStateChange) return;
+    onStateChange({
+      version: 1,
+      boardItems: cloneItems(boardItems),
+      annotations: cloneAnnotations(annotations),
+      canvasOffset,
+      zoom,
+      whiteboardName,
+      edgeMode,
+    });
+  }, [boardItems, annotations, canvasOffset, zoom, whiteboardName, edgeMode, onStateChange]);
 
   // ── History ────────────────────────────────────────────────────────────────
 
@@ -853,6 +886,21 @@ export default function VisualizerWorkbench() {
     setTimeout(() => { setZoom(sz); setCanvasOffset(so); }, 800);
   }
 
+  async function exportImage() {
+    if (!canvasRef.current) return;
+    const { toPng } = await import("html-to-image");
+    const dataUrl = await toPng(canvasRef.current, {
+      backgroundColor: "#f8fafc",
+      pixelRatio: 2,
+      cacheBust: true,
+    });
+    const link = document.createElement("a");
+    const safeName = whiteboardName.trim().replace(/\s+/g, "-").toLowerCase() || "whiteboard";
+    link.download = `${safeName}.png`;
+    link.href = dataUrl;
+    link.click();
+  }
+
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const previewArrow = dragState?.kind === "arrow-draw" ? dragState : null;
@@ -876,15 +924,48 @@ export default function VisualizerWorkbench() {
   // ─── Toolbar buttons style ────────────────────────────────────────────────
   const tbBtn = (active = false) =>
     `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
+  const chromeBtnBase = isSpace
+    ? "h-7 rounded-md border border-slate-500/35 bg-slate-900/70 px-2.5 text-xs font-medium text-slate-100 transition-colors hover:bg-slate-800/75 hover:border-slate-400/45 disabled:opacity-30 cursor-pointer"
+    : "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
+  const chromeBtn = (active = false) =>
+    `${chromeBtnBase} ${active ? (isSpace ? "bg-sky-500/20 text-sky-100 border-sky-400/45 hover:bg-sky-500/30 hover:border-sky-300/55" : "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300") : ""}`;
+  const chromeLabel = "text-sm font-medium leading-none";
+  const chromeInput = isSpace
+    ? "h-7 rounded-md border border-slate-500/35 bg-slate-900/70 px-2.5 text-xs font-medium text-slate-100 outline-none focus:border-sky-400/55"
+    : "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
+  const chromePanel = isSpace
+    ? "rounded-lg border border-slate-500/35 bg-slate-950/65 p-2 shadow-sm"
+    : "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
+  const chromeMenuItem = isSpace
+    ? "w-full cursor-pointer text-left px-3 py-2 text-slate-100 transition-colors hover:bg-slate-800/70"
+    : "w-full cursor-pointer text-left px-3 py-2 text-slate-700 transition-colors hover:bg-slate-50";
+  const chromeMenu = isSpace
+    ? "absolute right-0 mt-1 w-40 overflow-hidden rounded-md border border-slate-500/35 bg-slate-900/95 shadow-lg backdrop-blur-sm z-50"
+    : "absolute right-0 mt-1 w-40 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg z-50";
+  const chromeMenuDivider = isSpace
+    ? "divide-y divide-slate-500/30"
+    : "divide-y divide-slate-200";
+  const activityPanel = isSpace
+    ? "no-print flex flex-col border-l border-slate-500/30 bg-slate-950/70"
+    : "no-print flex flex-col border-l border-slate-200 bg-white";
+  const activityHeader = isSpace
+    ? "px-3 py-2 text-xs font-semibold text-slate-200 border-b border-slate-500/30 flex items-center justify-between"
+    : "px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between";
+  const activityEmpty = isSpace
+    ? "text-xs text-slate-400 mt-3 text-center"
+    : "text-xs text-slate-400 mt-3 text-center";
+  const activityItem = isSpace
+    ? "text-xs py-1 px-2 text-slate-200 leading-5"
+    : "text-xs py-1 px-2 text-slate-600 leading-5";
   const dragHandleStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
     gap: 4,
     padding: "2px 7px",
     borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "rgba(255,255,255,0.94)",
-    color: "#475569",
+    border: isSpace ? "1px solid rgba(148, 163, 184, 0.35)" : "1px solid #cbd5e1",
+    background: isSpace ? "rgba(15,23,42,0.88)" : "rgba(255,255,255,0.94)",
+    color: isSpace ? "#cbd5e1" : "#475569",
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: "0.02em",
@@ -893,28 +974,38 @@ export default function VisualizerWorkbench() {
   };
 
   return (
-    <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
+    <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: isSpace ? "#060d1b" : "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
 
       {/* ── Toolbar ── */}
-      <div className="no-print flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 select-none bg-white shadow-sm flex-wrap" style={{ zIndex: 50 }}>
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm" aria-label="Project branding">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span>
-          <span className="text-sm font-extrabold tracking-tight text-slate-900">fishbowl</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span>
-        </div>
+      <div className={`no-print flex items-center gap-1.5 px-3 py-2 border-b select-none shadow-sm flex-wrap ${isSpace ? "border-slate-500/30 bg-slate-950/70" : "border-slate-200 bg-white"}`} style={{ zIndex: 50 }}>
+        <button
+          type="button"
+          onClick={onBackToHome}
+          className={`flex items-center gap-2 rounded-xl border px-2.5 py-1 transition-colors cursor-pointer ${isSpace ? "border-slate-500/35 bg-slate-900/70 hover:bg-slate-800/75 hover:border-slate-400/45" : "border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300"}`}
+          aria-label="Go back to home"
+          title="Home"
+        >
+          {/* <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span> */}
+          <span className={`text-base font-extrabold tracking-tight ${isSpace ? "text-sky-200" : "text-blue-900"}`}>fishbowl</span>
+          {/* <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span> */}
+        </button>
         <input
           value={whiteboardName}
           onChange={e => setWhiteboardName(e.target.value)}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-white text-slate-700 border border-slate-200 w-[170px] outline-none focus:border-slate-400"
+          className={`${chromeInput} w-[170px] text-sm font-medium leading-none`}
           aria-label="Whiteboard name"
+          title="Rename board"
         />
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Tools */}
         {(["select", "arrow", "text"] as Tool[]).map(t => (
-          <button key={t} onClick={() => setActiveTool(t)} className={tbBtn(activeTool === t)}>
-            {t === "select" ? "↖ Select" : t === "arrow" ? "→ Arrow" : "T Text"}
+          <button key={t} onClick={() => setActiveTool(t)} className={`${chromeBtn(activeTool === t)} text-sm font-medium`}>
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden="true" className="text-xs leading-none">{t === "select" ? "↖" : t === "arrow" ? "→" : "T"}</span>
+              <span className={chromeLabel}>{t === "select" ? "Select" : t === "arrow" ? "Arrow" : "Text"}</span>
+            </span>
           </button>
         ))}
 
@@ -941,32 +1032,48 @@ export default function VisualizerWorkbench() {
           </span>
         )}
 
-        {/* Undo/Redo */}
-        <button onClick={undo} disabled={!undoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Z">↩</button>
-        <button onClick={redo} disabled={!redoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Y">↪</button>
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
-
-        {/* Zoom */}
-        <button onClick={() => setZoom(z => Math.max(0.2, z * 0.909))} className={tbBtn()}>−</button>
-        <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(z => Math.min(3, z * 1.1))} className={tbBtn()}>+</button>
-        <button onClick={() => { setZoom(1); setCanvasOffset({ x: 80, y: 80 }); }} className={tbBtn()}>⌂</button>
-
         <div className="flex-1" />
 
-        {/* Activity toggle + PDF */}
+        {/* Activity + Export */}
         <button
           onClick={() => setShowHistory(v => !v)}
-          className={tbBtn(showHistory)}
+          className={`${chromeBtn(showHistory)} text-sm font-medium`}
           title="Activity"
           aria-label="Activity"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block" aria-hidden="true">
             <path d="M2 3.25h10M2 7h10M2 10.75h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
         </button>
-        <button onClick={exportPDF} className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors">⬇ PDF</button>
+        <div className="relative">
+          <button
+            onClick={() => setShowExportMenu(v => !v)}
+            title="Export this board"
+            className={`${chromeBtn(showExportMenu)} text-sm font-medium`}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block mr-1 -mt-[1px]" aria-hidden="true">
+              <path d="M7 1.5v7M4.5 6L7 8.5 9.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 10.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            <span className={chromeLabel}>Export</span>
+          </button>
+          {showExportMenu && (
+            <div className={`${chromeMenu} ${chromeMenuDivider}`}>
+              <button
+                onClick={() => { setShowExportMenu(false); exportPDF(); }}
+                className={chromeMenuItem}
+              >
+                <span className={chromeLabel}>Save as PDF</span>
+              </button>
+              <button
+                onClick={() => { setShowExportMenu(false); void exportImage(); }}
+                className={chromeMenuItem}
+              >
+                <span className={chromeLabel}>Export as image</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Body ── */}
@@ -977,7 +1084,8 @@ export default function VisualizerWorkbench() {
           ref={canvasRef}
           className="flex-1 relative overflow-hidden"
           style={{
-            background: "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
+            backgroundImage: isSpace ? "radial-gradient(circle, rgba(148,163,184,0.35) 1px, transparent 1px)" : "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
+            backgroundColor: isSpace ? "#060d1b" : "#f8fafc",
             backgroundSize: "24px 24px",
             cursor: activeTool === "arrow" ? "crosshair" : activeTool === "text" ? "text" : dragState?.kind === "pan" ? "grabbing" : "default",
           }}
@@ -987,16 +1095,38 @@ export default function VisualizerWorkbench() {
         >
           {/* Insert objects (vertical bar) */}
           <div
-            className="no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
+            className={`no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 ${chromePanel}`}
             onPointerDown={e => e.stopPropagation()}
           >
-            <button title="Array" onClick={() => addBoard("array")} className="px-2 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer">[ ]</button>
-            <button title="List" onClick={() => addBoard("linkedlist")} className="px-2 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors cursor-pointer">◯→</button>
-            <button title="HashMap" onClick={() => addBoard("hashmap")} className="px-2 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors cursor-pointer">⊟</button>
-            <button title="Node" onClick={() => addBoard("node")} className="px-2 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors cursor-pointer">◯</button>
+            <button title="Array" onClick={() => addBoard("array")} className="h-7 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 cursor-pointer">[ ]</button>
+            <button title="List" onClick={() => addBoard("linkedlist")} className="h-7 rounded-md border border-green-200 bg-green-50 px-2.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 cursor-pointer">◯→</button>
+            <button title="HashMap" onClick={() => addBoard("hashmap")} className="h-7 rounded-md border border-orange-200 bg-orange-50 px-2.5 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 cursor-pointer">⊟</button>
+            <button title="Node" onClick={() => addBoard("node")} className="h-7 rounded-md border border-violet-200 bg-violet-50 px-2.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 cursor-pointer">◯</button>
             <div className="my-0.5 h-px bg-slate-200" />
-            <button onClick={undo} disabled={!undoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Z">↩</button>
-            <button onClick={redo} disabled={!redoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Y">↪</button>
+            <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
+            <button onClick={redo} disabled={!redoStack.length} className={chromeBtn()} title="Ctrl+Y">↪</button>
+          </div>
+
+          {/* Zoom toolbar (bottom-right) */}
+          <div
+            className={`no-print absolute right-2 bottom-2 z-20 flex items-center gap-2 ${chromePanel}`}
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setZoom(z => Math.max(0.2, z * 0.909))}
+              className={chromeBtn()}
+              title="Zoom in"
+            >
+              −
+            </button>
+            <span className="text-xs text-slate-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoom(z => Math.min(3, z * 1.1))}
+              className={chromeBtn()}
+              title="Zoom out"
+            >
+              +
+            </button>
           </div>
 
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
@@ -1592,15 +1722,15 @@ export default function VisualizerWorkbench() {
 
         {/* ── Activity sidebar ── */}
         {showHistory && (
-          <div className="no-print flex flex-col border-l border-slate-200 bg-white" style={{ width: 200, overflow: "hidden" }}>
-            <div className="px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between">
+          <div className={activityPanel} style={{ width: 200, overflow: "hidden" }}>
+            <div className={activityHeader}>
               <span>Activity</span>
-              <button onClick={() => setHistory([])} className="text-slate-300 hover:text-red-400 text-xs">clear</button>
+              <button onClick={() => setHistory([])} className={chromeBtn()}><span className={chromeLabel}>Clear</span></button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1" style={{ scrollbarWidth: "thin" }}>
-              {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No activity yet</p>}
+              {history.length === 0 && <p className={activityEmpty}>No activity yet</p>}
               {history.map(e => (
-                <div key={e.id} className="text-xs py-0.5 px-1 text-slate-600 leading-5" style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
+                <div key={e.id} className={activityItem} style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
               ))}
             </div>
           </div>

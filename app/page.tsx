@@ -1,9 +1,5 @@
-import VisualizerWorkbench from "./components/visualizer-workbench";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <main className="min-h-screen">
-      <VisualizerWorkbench />
-    </main>
-  );
+  redirect("/boards");
 }

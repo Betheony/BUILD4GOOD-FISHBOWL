@@ -152,6 +152,7 @@ export default function VisualizerWorkbench() {
   const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
+  const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
   const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
@@ -622,13 +623,17 @@ export default function VisualizerWorkbench() {
 
       {/* ── Toolbar ── */}
       <div className="no-print flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 select-none bg-white shadow-sm flex-wrap" style={{ zIndex: 50 }}>
-
-        {/* Add buttons */}
-        <span className="text-xs text-slate-400 mr-1">Add:</span>
-        <button onClick={() => addBoard("array")} className="px-2.5 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors">[ ] Array</button>
-        <button onClick={() => addBoard("linkedlist")} className="px-2.5 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors">◯→ List</button>
-        <button onClick={() => addBoard("hashmap")} className="px-2.5 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors">⊟ HashMap</button>
-        <button onClick={() => addBoard("node")} className="px-2.5 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors">◯ Node</button>
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm" aria-label="Project branding">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span>
+          <span className="text-sm font-extrabold tracking-tight text-slate-900">fishbowl</span>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span>
+        </div>
+        <input
+          value={whiteboardName}
+          onChange={e => setWhiteboardName(e.target.value)}
+          className="px-2.5 py-1 rounded text-xs font-medium bg-white text-slate-700 border border-slate-200 w-[170px] outline-none focus:border-slate-400"
+          aria-label="Whiteboard name"
+        />
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
@@ -673,8 +678,17 @@ export default function VisualizerWorkbench() {
 
         <div className="flex-1" />
 
-        {/* History toggle + PDF */}
-        <button onClick={() => setShowHistory(v => !v)} className={tbBtn(showHistory)} title="Toggle history">📋 History</button>
+        {/* Activity toggle + PDF */}
+        <button
+          onClick={() => setShowHistory(v => !v)}
+          className={tbBtn(showHistory)}
+          title="Activity"
+          aria-label="Activity"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M2 3.25h10M2 7h10M2 10.75h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        </button>
         <button onClick={exportPDF} className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors">⬇ PDF</button>
       </div>
 
@@ -694,6 +708,20 @@ export default function VisualizerWorkbench() {
           onPointerMove={handleCanvasMove}
           onPointerUp={handleCanvasUp}
         >
+          {/* Insert objects (vertical bar) */}
+          <div
+            className="no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <button title="Array" onClick={() => addBoard("array")} className="px-2 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer">[ ]</button>
+            <button title="List" onClick={() => addBoard("linkedlist")} className="px-2 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors cursor-pointer">◯→</button>
+            <button title="HashMap" onClick={() => addBoard("hashmap")} className="px-2 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors cursor-pointer">⊟</button>
+            <button title="Node" onClick={() => addBoard("node")} className="px-2 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors cursor-pointer">◯</button>
+            <div className="my-0.5 h-px bg-slate-200" />
+            <button onClick={undo} disabled={!undoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Z">↩</button>
+            <button onClick={redo} disabled={!redoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Y">↪</button>
+          </div>
+
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
 
             {/* SVG arrow layer */}
@@ -1025,15 +1053,15 @@ export default function VisualizerWorkbench() {
           </div>
         </div>
 
-        {/* ── History sidebar ── */}
+        {/* ── Activity sidebar ── */}
         {showHistory && (
           <div className="no-print flex flex-col border-l border-slate-200 bg-white" style={{ width: 200, overflow: "hidden" }}>
             <div className="px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between">
-              <span>History</span>
+              <span>Activity</span>
               <button onClick={() => setHistory([])} className="text-slate-300 hover:text-red-400 text-xs">clear</button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1" style={{ scrollbarWidth: "thin" }}>
-              {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No actions yet</p>}
+              {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No activity yet</p>}
               {history.map(e => (
                 <div key={e.id} className="text-xs py-0.5 px-1 text-slate-600 leading-5" style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
               ))}

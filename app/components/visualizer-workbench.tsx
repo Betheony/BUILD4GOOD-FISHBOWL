@@ -739,9 +739,13 @@ export default function VisualizerWorkbench() {
   const nodeHighlightBg = (h?: string) => h === "current" ? "#fbbf24" : h === "visited" ? "#86efac" : "white";
   const nodeHighlightBorder = (h?: string) => h === "current" ? "#d97706" : h === "visited" ? "#16a34a" : "#8b5cf6";
 
-  // ─── Toolbar buttons style ────────────────────────────────────────────────
-  const tbBtn = (active = false) =>
-    `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
+  // ─── Shared chrome styles (Miro-like, unified) ───────────────────────────
+  const chromeBtnBase = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
+  const chromeBtn = (active = false) =>
+    `${chromeBtnBase} ${active ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300" : ""}`;
+  const chromeInput = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
+  const chromePanel = "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
+  const chromeMenuItem = "w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50";
 
   return (
     <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
@@ -756,7 +760,7 @@ export default function VisualizerWorkbench() {
         <input
           value={whiteboardName}
           onChange={e => setWhiteboardName(e.target.value)}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-white text-slate-700 border border-slate-200 w-[170px] outline-none focus:border-slate-400"
+          className={`${chromeInput} w-[170px]`}
           aria-label="Whiteboard name"
         />
 
@@ -764,7 +768,7 @@ export default function VisualizerWorkbench() {
 
         {/* Tools */}
         {(["select", "arrow", "text"] as Tool[]).map(t => (
-          <button key={t} onClick={() => setActiveTool(t)} className={tbBtn(activeTool === t)}>
+          <button key={t} onClick={() => setActiveTool(t)} className={chromeBtn(activeTool === t)}>
             {t === "select" ? "↖ Select" : t === "arrow" ? "→ Arrow" : "T Text"}
           </button>
         ))}
@@ -772,8 +776,8 @@ export default function VisualizerWorkbench() {
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
         <span className="text-xs text-slate-400">Edges:</span>
-        <button onClick={() => setGraphEdgeMode("directed")} className={tbBtn(edgeMode === "directed")}>A → B</button>
-        <button onClick={() => setGraphEdgeMode("undirected")} className={tbBtn(edgeMode === "undirected")}>A ↔ B</button>
+        <button onClick={() => setGraphEdgeMode("directed")} className={chromeBtn(edgeMode === "directed")}>A → B</button>
+        <button onClick={() => setGraphEdgeMode("undirected")} className={chromeBtn(edgeMode === "undirected")}>A ↔ B</button>
 
         {activeTool === "arrow" && !selectedNode && (
           <span className="text-xs text-slate-500 ml-1">
@@ -790,23 +794,23 @@ export default function VisualizerWorkbench() {
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Undo/Redo */}
-        <button onClick={undo} disabled={!undoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Z">↩</button>
-        <button onClick={redo} disabled={!redoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Y">↪</button>
+        <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
+        <button onClick={redo} disabled={!redoStack.length} className={chromeBtn()} title="Ctrl+Y">↪</button>
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Zoom */}
-        <button onClick={() => setZoom(z => Math.max(0.2, z * 0.909))} className={tbBtn()}>−</button>
+        <button onClick={() => setZoom(z => Math.max(0.2, z * 0.909))} className={chromeBtn()}>−</button>
         <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(z => Math.min(3, z * 1.1))} className={tbBtn()}>+</button>
-        <button onClick={() => { setZoom(1); setCanvasOffset({ x: 80, y: 80 }); }} className={tbBtn()}>⌂</button>
+        <button onClick={() => setZoom(z => Math.min(3, z * 1.1))} className={chromeBtn()}>+</button>
+        <button onClick={() => { setZoom(1); setCanvasOffset({ x: 80, y: 80 }); }} className={chromeBtn()}>⌂</button>
 
         <div className="flex-1" />
 
         {/* Activity + Export */}
         <button
           onClick={() => setShowHistory(v => !v)}
-          className={tbBtn(showHistory)}
+          className={chromeBtn(showHistory)}
           title="Activity"
           aria-label="Activity"
         >
@@ -818,25 +822,25 @@ export default function VisualizerWorkbench() {
           <button
             onClick={() => setShowExportMenu(v => !v)}
             title="Export this board"
-            className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors"
+            className={chromeBtn(showExportMenu)}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block mr-1 -mt-[1px]" aria-hidden="true">
               <path d="M7 1.5v7M4.5 6L7 8.5 9.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M2 10.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
-            
+            Export
           </button>
           {showExportMenu && (
             <div className="absolute right-0 mt-1 w-40 rounded-md border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
               <button
                 onClick={() => { setShowExportMenu(false); exportPDF(); }}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                className={chromeMenuItem}
               >
                 Save as PDF
               </button>
               <button
                 onClick={() => { setShowExportMenu(false); void exportImage(); }}
-                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                className={chromeMenuItem}
               >
                 Export as image
               </button>
@@ -863,16 +867,16 @@ export default function VisualizerWorkbench() {
         >
           {/* Insert objects (vertical bar) */}
           <div
-            className="no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
+            className={`no-print absolute left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1.5 ${chromePanel}`}
             onPointerDown={e => e.stopPropagation()}
           >
-            <button title="Array" onClick={() => addBoard("array")} className="px-2 py-1 rounded text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer">[ ]</button>
-            <button title="List" onClick={() => addBoard("linkedlist")} className="px-2 py-1 rounded text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors cursor-pointer">◯→</button>
-            <button title="HashMap" onClick={() => addBoard("hashmap")} className="px-2 py-1 rounded text-xs font-semibold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 transition-colors cursor-pointer">⊟</button>
-            <button title="Node" onClick={() => addBoard("node")} className="px-2 py-1 rounded text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 transition-colors cursor-pointer">◯</button>
+            <button title="Array" onClick={() => addBoard("array")} className="h-7 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 cursor-pointer">[ ]</button>
+            <button title="List" onClick={() => addBoard("linkedlist")} className="h-7 rounded-md border border-green-200 bg-green-50 px-2.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 cursor-pointer">◯→</button>
+            <button title="HashMap" onClick={() => addBoard("hashmap")} className="h-7 rounded-md border border-orange-200 bg-orange-50 px-2.5 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 cursor-pointer">⊟</button>
+            <button title="Node" onClick={() => addBoard("node")} className="h-7 rounded-md border border-violet-200 bg-violet-50 px-2.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 cursor-pointer">◯</button>
             <div className="my-0.5 h-px bg-slate-200" />
-            <button onClick={undo} disabled={!undoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Z">↩</button>
-            <button onClick={redo} disabled={!redoStack.length} className="px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer border bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800 disabled:opacity-30" title="Ctrl+Y">↪</button>
+            <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
+            <button onClick={redo} disabled={!redoStack.length} className={chromeBtn()} title="Ctrl+Y">↪</button>
           </div>
 
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
@@ -1379,12 +1383,12 @@ export default function VisualizerWorkbench() {
           <div className="no-print flex flex-col border-l border-slate-200 bg-white" style={{ width: 200, overflow: "hidden" }}>
             <div className="px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between">
               <span>Activity</span>
-              <button onClick={() => setHistory([])} className="text-slate-300 hover:text-red-400 text-xs">clear</button>
+              <button onClick={() => setHistory([])} className={chromeBtn()}>Clear</button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1" style={{ scrollbarWidth: "thin" }}>
               {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No activity yet</p>}
               {history.map(e => (
-                <div key={e.id} className="text-xs py-0.5 px-1 text-slate-600 leading-5" style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
+                <div key={e.id} className="text-xs py-1 px-2 text-slate-600 leading-5" style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
               ))}
             </div>
           </div>

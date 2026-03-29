@@ -955,9 +955,9 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
           aria-label="Go back to home"
           title="Go to home"
         >
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span>
+          {/* <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span> */}
           <span className="text-sm font-extrabold tracking-tight text-slate-900">fishbowl</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span>
+          {/* <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span> */}
         </button>
         <input
           value={whiteboardName}
@@ -997,18 +997,6 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             Drag from {selectedNode.label || "selected node"} to connect
           </span>
         )}
-
-        {/* Undo/Redo */}
-        <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
-        <button onClick={redo} disabled={!redoStack.length} className={chromeBtn()} title="Ctrl+Y">↪</button>
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
-
-        {/* Zoom */}
-        <button onClick={() => setZoom(z => Math.max(0.2, z * 0.909))} className={chromeBtn()}>−</button>
-        <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(z => Math.min(3, z * 1.1))} className={chromeBtn()}>+</button>
-        <button onClick={() => { setZoom(1); setCanvasOffset({ x: 80, y: 80 }); }} className={chromeBtn()}>⌂</button>
 
         <div className="flex-1" />
 
@@ -1082,6 +1070,28 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             <div className="my-0.5 h-px bg-slate-200" />
             <button onClick={undo} disabled={!undoStack.length} className={chromeBtn()} title="Ctrl+Z">↩</button>
             <button onClick={redo} disabled={!redoStack.length} className={chromeBtn()} title="Ctrl+Y">↪</button>
+          </div>
+
+          {/* Zoom toolbar (bottom-right) */}
+          <div
+            className={`no-print absolute right-2 bottom-2 z-20 flex items-center gap-2 ${chromePanel}`}
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setZoom(z => Math.max(0.2, z * 0.909))}
+              className={chromeBtn()}
+              title="Zoom in"
+            >
+              −
+            </button>
+            <span className="text-xs text-slate-500 w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => setZoom(z => Math.min(3, z * 1.1))}
+              className={chromeBtn()}
+              title="Zoom out"
+            >
+              +
+            </button>
           </div>
 
           <div style={{ position: "absolute", width: 5000, height: 4000, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>

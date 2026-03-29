@@ -9,13 +9,13 @@ type BoardPosition = { x: number; y: number };
 type StructureKind = "array" | "linkedlist" | "hashmap" | "node";
 type CellAnim = "add" | "remove" | "swap";
 
-type ArrayCell = { id: string; value: string; anim?: CellAnim };
+type ArrayCell = { id: string; value: string; anim?: CellAnim; animShiftX?: number };
 type ArrayBoard = {
   id: string; kind: "array"; position: BoardPosition; label: string;
   cells: ArrayCell[]; selectedCells: string[];
 };
 
-type LLNode = { id: string; value: string; anim?: CellAnim };
+type LLNode = { id: string; value: string; anim?: CellAnim; animShiftX?: number };
 type LinkedListBoard = {
   id: string; kind: "linkedlist"; position: BoardPosition; label: string;
   nodes: LLNode[]; selectedNodes: string[];
@@ -57,10 +57,24 @@ type AnnotationItem = ArrowAnnotation | TextAnnotation;
 
 type Tool = "select" | "arrow" | "text";
 type EdgeMode = "directed" | "undirected";
+type ArrayMode = "select" | "swap";
 type DragState =
   | { kind: "card"; id: string; isAnnotation: boolean; pointerOffsetX: number; pointerOffsetY: number }
   | { kind: "pan"; startClientX: number; startClientY: number; startOffsetX: number; startOffsetY: number }
   | { kind: "arrow-draw"; startX: number; startY: number; currentX: number; currentY: number; sourceNodeId?: string };
+type ArrayCellDragState = {
+  boardId: string;
+  cellId: string;
+  pointerId: number;
+  originIndex: number;
+  currentIndex: number;
+  startClientX: number;
+  startClientY: number;
+  currentClientX: number;
+  currentClientY: number;
+  value: string;
+  dragStarted: boolean;
+};
 
 type UndoSnapshot = { items: BoardItem[]; annotations: AnnotationItem[] };
 type HistoryEntry = { id: string; msg: string };
@@ -205,6 +219,23 @@ function getNodeCenter(node: GraphNode) {
   return { x: node.position.x + NODE_RADIUS, y: node.position.y + NODE_RADIUS };
 }
 
+function reorderArrayCells(cells: ArrayCell[], fromIndex: number, toIndex: number) {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= cells.length ||
+    toIndex >= cells.length
+  ) {
+    return cells;
+  }
+
+  const next = [...cells];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
 function getSegmentPoints(
   start: BoardPosition,
   end: BoardPosition,
@@ -275,6 +306,8 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [hmDupAlert, setHmDupAlert] = useState<{ bid: string; key: string } | null>(null)
+  const [arrayModes, setArrayModes] = useState<Record<string, ArrayMode>>({});
+  const [arrayCellDrag, setArrayCellDrag] = useState<ArrayCellDragState | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const addBoardCountRef = useRef(0);
   const live = useRef({ zoom, canvasOffset, boardItems, annotations, activeTool, dragState });
@@ -440,16 +473,113 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   function arraySwap(bid: string) {
     const ab = live.current.boardItems.find(b => b.id === bid) as ArrayBoard;
     if (!ab || ab.selectedCells.length !== 2) return;
+    performArraySwap(bid, ab.selectedCells[0], ab.selectedCells[1]);
+  }
+
+  function performArraySwap(bid: string, firstCellId: string, secondCellId: string) {
+    const ab = live.current.boardItems.find(b => b.id === bid) as ArrayBoard | undefined;
+    if (!ab) return;
     snapshot();
-    const [a, b2] = ab.selectedCells;
-    const va = ab.cells.find(c => c.id === a)?.value ?? "", vb = ab.cells.find(c => c.id === b2)?.value ?? "";
-    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, selectedCells: [], cells: (b as ArrayBoard).cells.map(c => c.id === a ? { ...c, value: vb, anim: "swap" } : c.id === b2 ? { ...c, value: va, anim: "swap" } : c) } as ArrayBoard));
+    const firstIndex = ab.cells.findIndex(c => c.id === firstCellId);
+    const secondIndex = ab.cells.findIndex(c => c.id === secondCellId);
+    const swapDistance = (secondIndex - firstIndex) * 42;
+    const va = ab.cells.find(c => c.id === firstCellId)?.value ?? "";
+    const vb = ab.cells.find(c => c.id === secondCellId)?.value ?? "";
+    setBoardItems(p => p.map(b => b.id !== bid ? b : {
+      ...b,
+      selectedCells: [],
+      cells: (b as ArrayBoard).cells.map(c =>
+        c.id === firstCellId
+          ? { ...c, value: vb, anim: "swap", animShiftX: swapDistance }
+          : c.id === secondCellId
+            ? { ...c, value: va, anim: "swap", animShiftX: -swapDistance }
+            : c,
+      ),
+    } as ArrayBoard));
     log(`⇄ Swapped "${va}" ↔ "${vb}"`);
-    setTimeout(() => setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, cells: (b as ArrayBoard).cells.map(c => c.id === a || c.id === b2 ? { ...c, anim: undefined } : c) } as ArrayBoard)), 460);
+    setTimeout(() => setBoardItems(p => p.map(b => b.id !== bid ? b : {
+      ...b,
+      cells: (b as ArrayBoard).cells.map(c =>
+        c.id === firstCellId || c.id === secondCellId ? { ...c, anim: undefined, animShiftX: undefined } : c,
+      ),
+    } as ArrayBoard)), 1100);
   }
 
   function arrayUpdateCell(bid: string, cid: string, value: string) {
     setBoardItems(p => p.map(b => b.id !== bid ? b : { ...b, cells: (b as ArrayBoard).cells.map(c => c.id === cid ? { ...c, value } : c) } as ArrayBoard));
+  }
+
+  function setArrayMode(bid: string, mode: ArrayMode) {
+    setArrayModes(prev => ({ ...prev, [bid]: mode }));
+    if (mode === "swap") {
+      setBoardItems(p => p.map(b => b.id !== bid ? b : { ...(b as ArrayBoard), selectedCells: [] }));
+      log("⇄ Swap mode enabled");
+      return;
+    }
+
+    setBoardItems(p => p.map(b => b.id !== bid ? b : { ...(b as ArrayBoard), selectedCells: [] }));
+  }
+
+  function handleArrayCellActivate(bid: string, cid: string) {
+    const mode = arrayModes[bid] ?? "select";
+
+    if (mode !== "swap") {
+      arrayToggleSelect(bid, cid);
+      return;
+    }
+
+    const ab = live.current.boardItems.find(b => b.id === bid) as ArrayBoard | undefined;
+    if (!ab) return;
+
+    const nextSelected = ab.selectedCells.includes(cid)
+      ? ab.selectedCells.filter(x => x !== cid)
+      : ab.selectedCells.length < 2
+        ? [...ab.selectedCells, cid]
+        : [ab.selectedCells[1], cid];
+
+    if (nextSelected.length !== 2) {
+      setBoardItems(p => p.map(b => b.id !== bid ? b : { ...(b as ArrayBoard), selectedCells: nextSelected }));
+      return;
+    }
+
+    performArraySwap(bid, nextSelected[0], nextSelected[1]);
+    window.setTimeout(() => {
+      setArrayModes(prev => ({ ...prev, [bid]: "select" }));
+    }, 0);
+  }
+
+  function getArrayDropIndex(board: ArrayBoard, clientX: number) {
+    const cellWidth = 42;
+    const relativeX = (clientX - live.current.canvasOffset.x) / live.current.zoom - board.position.x;
+    const rawIndex = Math.floor((relativeX + cellWidth / 2) / cellWidth);
+    return Math.max(0, Math.min(board.cells.length - 1, rawIndex));
+  }
+
+  function handleArrayCellPointerDown(
+    e: React.PointerEvent<HTMLDivElement>,
+    board: ArrayBoard,
+    cell: ArrayCell,
+    cellIndex: number,
+  ) {
+    if (live.current.activeTool !== "select") return;
+    if ((e.target as HTMLElement).tagName === "INPUT") return;
+
+    e.stopPropagation();
+    setSelectedBoardId(board.id);
+    setArrayCellDrag({
+      boardId: board.id,
+      cellId: cell.id,
+      pointerId: e.pointerId,
+      originIndex: cellIndex,
+      currentIndex: cellIndex,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      currentClientX: e.clientX,
+      currentClientY: e.clientY,
+      value: cell.value,
+      dragStarted: false,
+    });
+    e.currentTarget.setPointerCapture(e.pointerId);
   }
 
   // ── Linked List ops ────────────────────────────────────────────────────────
@@ -836,6 +966,65 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
+  const finalizeArrayCellDrag = useEffectEvent((drag: ArrayCellDragState) => {
+    if (!drag.dragStarted) {
+      handleArrayCellActivate(drag.boardId, drag.cellId);
+      return;
+    }
+
+    if (drag.currentIndex !== drag.originIndex) {
+      snapshot();
+      setBoardItems(items => items.map(item => {
+        if (item.id !== drag.boardId || item.kind !== "array") return item;
+        const nextCells = reorderArrayCells(item.cells, drag.originIndex, drag.currentIndex);
+        return {
+          ...item,
+          cells: nextCells,
+          selectedCells: item.selectedCells.includes(drag.cellId) ? [drag.cellId] : item.selectedCells,
+        };
+      }));
+      log(`↔ Moved cell to index ${drag.currentIndex}`);
+    }
+  });
+
+  useEffect(() => {
+    if (!arrayCellDrag) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      setArrayCellDrag(prev => {
+        if (!prev || prev.pointerId !== e.pointerId) return prev;
+        const board = live.current.boardItems.find(b => b.id === prev.boardId);
+        if (!board || board.kind !== "array") return prev;
+
+        const dragStarted =
+          prev.dragStarted ||
+          Math.hypot(e.clientX - prev.startClientX, e.clientY - prev.startClientY) > 6;
+
+        return {
+          ...prev,
+          currentClientX: e.clientX,
+          currentClientY: e.clientY,
+          currentIndex: dragStarted ? getArrayDropIndex(board, e.clientX) : prev.currentIndex,
+          dragStarted,
+        };
+      });
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!arrayCellDrag || arrayCellDrag.pointerId !== e.pointerId) return;
+      setArrayCellDrag(null);
+      finalizeArrayCellDrag(arrayCellDrag);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [arrayCellDrag]);
+
   // ── Zoom ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1202,13 +1391,15 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             {/* ── Array boards ── */}
             {boardItems.filter(b => b.kind === "array").map(item => {
               const ab = item as ArrayBoard;
+              const arrayMode = arrayModes[ab.id] ?? "select";
+              const activeArrayDrag = arrayCellDrag?.boardId === ab.id ? arrayCellDrag : null;
               return (
                 <div key={ab.id} data-card
                   style={{ position: "absolute", left: ab.position.x, top: ab.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
                   onPointerDown={e => {
                     if ((e.target as HTMLElement).tagName === "INPUT") return;
                     setSelectedBoardId(ab.id);
-                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y);
+                    if (isDragHandleTarget(e.target) && !activeArrayDrag) handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y);
                   }}
                   onClick={() => setSelectedBoardId(ab.id)}
                 >
@@ -1221,10 +1412,20 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                     <input value={ab.label} onChange={e => setBoardItems(p => p.map(b => b.id === ab.id ? { ...b, label: e.target.value } as ArrayBoard : b))}
                       onPointerDown={e => e.stopPropagation()}
                       className="text-xs font-bold text-blue-600 bg-transparent outline-none w-24" />
-                    {ab.selectedCells.length === 2 && (
+                    <button
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={() => setArrayMode(ab.id, arrayMode === "swap" ? "select" : "swap")}
+                      className={`text-xs px-1.5 py-0.5 rounded border font-bold transition-colors ${arrayMode === "swap" ? "bg-amber-200 hover:bg-amber-300 text-amber-800 border-amber-400" : "bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"}`}
+                    >
+                      ⇄ Swap
+                    </button>
+                    {ab.selectedCells.length === 2 && arrayMode !== "swap" && (
                       <button onPointerDown={e => e.stopPropagation()} onClick={() => arraySwap(ab.id)}
-                        className="text-xs px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-700 border border-amber-300 font-bold">⇄ Swap</button>
+                        className="text-xs px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-700 border border-amber-300 font-bold">Run</button>
                     )}
+                    <span className={`text-[10px] font-semibold ${arrayMode === "swap" ? "text-amber-700" : "text-slate-400"}`}>
+                      {arrayMode === "swap" ? "Pick 2 cells" : "Drag to reorder"}
+                    </span>
                     <button onPointerDown={e => e.stopPropagation()} onClick={() => removeBoard(ab.id)}
                       className="text-slate-300 hover:text-red-500 text-xs ml-auto transition-colors" title="Double-click or click × to remove">×</button>
                   </div>
@@ -1232,20 +1433,48 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                   <div className="flex items-end" onDoubleClick={() => removeBoard(ab.id)} title="Double-click background to remove array">
                     {ab.cells.map((cell, idx) => {
                       const sel = ab.selectedCells.includes(cell.id);
+                      const isDraggedCell = activeArrayDrag?.cellId === cell.id;
+                      const dropIndex = activeArrayDrag?.currentIndex ?? -1;
+                      const shiftRight = activeArrayDrag?.dragStarted && !isDraggedCell && idx >= dropIndex && idx < activeArrayDrag.originIndex;
+                      const shiftLeft = activeArrayDrag?.dragStarted && !isDraggedCell && idx <= dropIndex && idx > activeArrayDrag.originIndex;
                       let anim: React.CSSProperties = {};
                       if (cell.anim === "add") anim = { animation: "cellAdd 0.35s cubic-bezier(.34,1.56,.64,1) forwards" };
                       if (cell.anim === "remove") anim = { animation: "cellRemove 0.28s ease forwards", pointerEvents: "none" };
-                      if (cell.anim === "swap") anim = { animation: "cellSwap 0.46s ease" };
+                      if (cell.anim === "swap") anim = {
+                        animation: "cellSwap 1.1s cubic-bezier(.18,.88,.22,1) forwards",
+                        ["--swap-shift" as string]: `${cell.animShiftX ?? 0}px`,
+                      };
                       return (
-                        <div key={cell.id} style={{ position: "relative", ...anim }}>
+                        <div
+                          key={cell.id}
+                          style={{
+                            position: "relative",
+                            opacity: isDraggedCell && activeArrayDrag?.dragStarted ? 0.15 : 1,
+                            transform: shiftRight ? "translateX(42px)" : shiftLeft ? "translateX(-42px)" : "translateX(0)",
+                            transition: "transform 180ms ease, opacity 180ms ease",
+                            ...anim,
+                          }}
+                        >
                           <span style={{ position: "absolute", top: -14, left: 0, right: 0, textAlign: "center", fontSize: 9, color: "#94a3b8" }}>{idx}</span>
                           <div style={{
-                            width: 42, height: 42, border: sel ? "2px solid #f59e0b" : "1px solid #93c5fd", borderRight: "none",
-                            background: sel ? "#fef3c7" : "white", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                            width: 42,
+                            height: 42,
+                            borderStyle: "solid",
+                            borderTopWidth: sel ? 2 : 1,
+                            borderBottomWidth: sel ? 2 : 1,
+                            borderLeftWidth: sel ? 2 : 1,
+                            borderRightWidth: 0,
+                            borderColor: sel ? "#f59e0b" : "#93c5fd",
+                            background: sel ? "#fef3c7" : "white",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: arrayMode === "swap" ? "cell" : "grab",
+                            boxShadow: isDraggedCell && activeArrayDrag?.dragStarted ? "0 8px 18px rgba(59,130,246,0.18)" : undefined,
                           }}
-                            onClick={e => { e.stopPropagation(); arrayToggleSelect(ab.id, cell.id); }}
+                            onPointerDown={e => handleArrayCellPointerDown(e, ab, cell, idx)}
                             onDoubleClick={e => { e.stopPropagation(); arrayRemoveCell(ab.id, cell.id, cell.value); }}
-                            title="Click to select • Double-click to remove">
+                            title={arrayMode === "swap" ? "Swap mode: click two cells to swap" : "Drag to reorder • Click to select • Double-click to remove"}>
                             <input value={cell.value} onChange={e => arrayUpdateCell(ab.id, cell.id, e.target.value)}
                               onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}
                               style={{ width: "100%", textAlign: "center", fontSize: 13, fontWeight: 600, background: "transparent", border: "none", outline: "none", color: sel ? "#d97706" : "#1e40af" }} />
@@ -1261,6 +1490,34 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
                 </div>
               );
             })}
+
+            {arrayCellDrag?.dragStarted && (
+              <div
+                style={{
+                  position: "fixed",
+                  left: arrayCellDrag.currentClientX,
+                  top: arrayCellDrag.currentClientY,
+                  width: 42,
+                  height: 42,
+                  border: "2px solid #60a5fa",
+                  background: "rgba(255,255,255,0.96)",
+                  boxShadow: "0 16px 28px rgba(15, 23, 42, 0.18)",
+                  borderRadius: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  zIndex: 80,
+                  transform: "translate(0, 0) rotate(2deg) scale(1.03)",
+                  transition: "transform 120ms ease",
+                  color: "#1d4ed8",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {arrayCellDrag.value || " "}
+              </div>
+            )}
 
             {/* ── Linked List boards ── */}
             {boardItems.filter(b => b.kind === "linkedlist").map(item => {

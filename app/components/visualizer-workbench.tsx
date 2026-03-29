@@ -428,10 +428,16 @@ export default function VisualizerWorkbench() {
     y: (cy - live.current.canvasOffset.y) / live.current.zoom,
   });
 
+  const isDragHandleTarget = (target: EventTarget | null) =>
+    target instanceof HTMLElement && !!target.closest("[data-drag-handle]");
+
   function handleCanvasDown(e: React.PointerEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
     if (target.closest("[data-card]") || target.closest("[data-annotation]")) return;
     const { activeTool: tool } = live.current;
+
+    setSelectedBoardId(null);
+    setAnnotations(p => p.map(a => a.selected ? { ...a, selected: false } : a));
 
     if (tool === "arrow") {
       const { x, y } = clientToCanvas(e.clientX, e.clientY);
@@ -448,7 +454,6 @@ export default function VisualizerWorkbench() {
       setActiveTool("select");
       return;
     }
-    setSelectedBoardId(null);
     setDragState({ kind: "pan", startClientX: e.clientX, startClientY: e.clientY, startOffsetX: live.current.canvasOffset.x, startOffsetY: live.current.canvasOffset.y });
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -605,6 +610,13 @@ export default function VisualizerWorkbench() {
 
   const previewArrow = dragState?.kind === "arrow-draw" ? dragState : null;
   const connectedNodeIds = getConnectedNodeIds(annotations);
+  const selectedGraphEdges = annotations.filter(
+    (ann): ann is ArrowAnnotation =>
+      ann.kind === "arrow" &&
+      ann.selected &&
+      !!ann.fromNodeId &&
+      !!ann.toNodeId,
+  );
   const selectedNode =
     selectedBoardId && boardItems.find(b => b.id === selectedBoardId)?.kind === "node"
       ? boardItems.find(b => b.id === selectedBoardId) as GraphNode
@@ -617,6 +629,21 @@ export default function VisualizerWorkbench() {
   // ─── Toolbar buttons style ────────────────────────────────────────────────
   const tbBtn = (active = false) =>
     `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
+  const dragHandleStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "2px 7px",
+    borderRadius: 999,
+    border: "1px solid #cbd5e1",
+    background: "rgba(255,255,255,0.94)",
+    color: "#475569",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    cursor: activeTool === "select" ? "grab" : "default",
+    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.08)",
+  };
 
   return (
     <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
@@ -646,9 +673,14 @@ export default function VisualizerWorkbench() {
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
-        <span className="text-xs text-slate-400">Edges:</span>
-        <button onClick={() => setGraphEdgeMode("directed")} className={tbBtn(edgeMode === "directed")}>A → B</button>
-        <button onClick={() => setGraphEdgeMode("undirected")} className={tbBtn(edgeMode === "undirected")}>A ↔ B</button>
+        {selectedGraphEdges.length > 0 && (
+          <>
+            <span className="text-xs text-slate-400">Edges:</span>
+            <button onClick={() => setGraphEdgeMode("directed")} className={tbBtn(edgeMode === "directed")}>A → B</button>
+            <button onClick={() => setGraphEdgeMode("undirected")} className={tbBtn(edgeMode === "undirected")}>A ↔ B</button>
+            <div className="w-px h-5 bg-slate-200 mx-1" />
+          </>
+        )}
 
         {activeTool === "arrow" && !selectedNode && (
           <span className="text-xs text-slate-500 ml-1">
@@ -661,8 +693,6 @@ export default function VisualizerWorkbench() {
             Drag from {selectedNode.label || "selected node"} to connect
           </span>
         )}
-
-        <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Undo/Redo */}
         <button onClick={undo} disabled={!undoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Z">↩</button>
@@ -749,8 +779,15 @@ export default function VisualizerWorkbench() {
                 const marker = ar.selected ? "url(#ah-sel)" : isGraph ? "url(#ah-graph)" : "url(#ah)";
                 return (
                   <g key={ar.id} style={{ pointerEvents: "stroke" }} data-annotation
-                    onClick={() => {
-                      setAnnotations(p => p.map(x => x.id === ar.id ? { ...x, selected: !ar.selected } : x));
+                    onClick={(e) => {
+                      const isMultiSelect = e.ctrlKey || e.metaKey;
+                      setAnnotations(p => p.map(x => {
+                        if (x.kind !== "arrow") return x;
+                        if (x.id === ar.id) {
+                          return { ...x, selected: isMultiSelect ? !ar.selected : true };
+                        }
+                        return isMultiSelect ? x : { ...x, selected: false };
+                      }));
                       setEdgeMode(ar.directed === false ? "undirected" : "directed");
                     }}
                     onDoubleClick={() => removeAnnotation(ar.id)}>
@@ -791,11 +828,19 @@ export default function VisualizerWorkbench() {
               return (
                 <div key={ab.id} data-card
                   style={{ position: "absolute", left: ab.position.x, top: ab.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "INPUT") { setSelectedBoardId(ab.id); handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y); } }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    setSelectedBoardId(ab.id);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ab.id, false, ab.position.x, ab.position.y);
+                  }}
                   onClick={() => setSelectedBoardId(ab.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   {/* Label row */}
-                  <div className="flex items-center gap-1 mb-1">
+                  <div className="flex items-center gap-1 mb-5">
                     <input value={ab.label} onChange={e => setBoardItems(p => p.map(b => b.id === ab.id ? { ...b, label: e.target.value } as ArrayBoard : b))}
                       onPointerDown={e => e.stopPropagation()}
                       className="text-xs font-bold text-blue-600 bg-transparent outline-none w-24" />
@@ -846,11 +891,19 @@ export default function VisualizerWorkbench() {
               return (
                 <div key={ll.id} data-card
                   style={{ position: "absolute", left: ll.position.x, top: ll.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "INPUT") { setSelectedBoardId(ll.id); handleCardDragStart(e, ll.id, false, ll.position.x, ll.position.y); } }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    setSelectedBoardId(ll.id);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ll.id, false, ll.position.x, ll.position.y);
+                  }}
                   onClick={() => setSelectedBoardId(ll.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   {/* Header */}
-                  <div className="flex items-center gap-1 mb-1">
+                  <div className="flex items-center gap-1 mb-4">
                     <input value={ll.label} onChange={e => setBoardItems(p => p.map(b => b.id === ll.id ? { ...b, label: e.target.value } as LinkedListBoard : b))}
                       onPointerDown={e => e.stopPropagation()}
                       className="text-xs font-bold text-green-700 bg-transparent outline-none w-24" />
@@ -908,9 +961,17 @@ export default function VisualizerWorkbench() {
               return (
                 <div key={hm.id} data-card
                   style={{ position: "absolute", left: hm.position.x, top: hm.position.y, minWidth: 200, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if (!["INPUT", "BUTTON"].includes((e.target as HTMLElement).tagName)) { setSelectedBoardId(hm.id); handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y); } }}
+                  onPointerDown={e => {
+                    if (["INPUT", "BUTTON"].includes((e.target as HTMLElement).tagName)) return;
+                    setSelectedBoardId(hm.id);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, hm.id, false, hm.position.x, hm.position.y);
+                  }}
                   onClick={() => setSelectedBoardId(hm.id)}
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -22, left: 0 }}>
+                    <span>⋮⋮</span>
+                    <span>Drag</span>
+                  </div>
                   <div style={{ background: "white", borderRadius: 8, border: "1.5px solid #fed7aa", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", overflow: "hidden" }}>
                     {/* Header */}
                     <div className="flex items-center gap-1 px-2 py-1.5" style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa" }}>
@@ -991,12 +1052,16 @@ export default function VisualizerWorkbench() {
                       return;
                     }
                     setSelectedBoardId(nb.id);
-                    handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y);
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y);
                   }}
                   onDoubleClick={() => removeBoard(nb.id)}
                   onClick={() => setSelectedBoardId(nb.id)}
                   title="Double-click to remove"
                 >
+                  <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -24, left: "50%", transform: "translateX(-50%)", zIndex: 1 }}>
+                    <span>⋮⋮</span>
+                    <span>Move</span>
+                  </div>
                   <div style={{
                     width: NODE_RADIUS * 2, height: NODE_RADIUS * 2, borderRadius: "50%",
                     background: bg, border: `2px solid ${border}`,
@@ -1034,11 +1099,18 @@ export default function VisualizerWorkbench() {
               return (
                 <div key={ta.id} data-annotation
                   style={{ position: "absolute", left: ta.x, top: ta.y, width: ta.width, animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "TEXTAREA") handleCardDragStart(e, ta.id, true, ta.x, ta.y); }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
+                    if (isDragHandleTarget(e.target)) handleCardDragStart(e, ta.id, true, ta.x, ta.y);
+                  }}
                   onDoubleClick={e => { if ((e.target as HTMLElement).tagName !== "TEXTAREA") removeAnnotation(ta.id); }}
                   title="Double-click border to remove"
                 >
                   <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", position: "relative" }}>
+                    <div data-drag-handle style={{ ...dragHandleStyle, position: "absolute", top: -12, left: 10, zIndex: 1 }}>
+                      <span>⋮⋮</span>
+                      <span>Drag</span>
+                    </div>
                     <textarea value={ta.text} onChange={e => setAnnotations(p => p.map(x => x.id === ta.id ? { ...x, text: e.target.value } : x))}
                       placeholder="Note…"
                       style={{ width: "100%", minHeight: 64, background: "transparent", border: "none", outline: "none", resize: "both", color: "#92400e", fontSize: 12, padding: "8px 28px 8px 10px", fontFamily: "inherit" }} />

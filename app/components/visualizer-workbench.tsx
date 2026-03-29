@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import type { AppTheme } from "@/app/components/theme-provider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ type VisualizerWorkbenchProps = {
   initialState?: PersistedBoardState | null;
   onStateChange?: (state: PersistedBoardState) => void;
   onBackToHome?: () => void;
+  theme?: AppTheme;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -255,7 +257,8 @@ function getConnectedNodeIds(annotations: AnnotationItem[]): Set<string> {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function VisualizerWorkbench({ initialState, onStateChange, onBackToHome }: VisualizerWorkbenchProps) {
+export default function VisualizerWorkbench({ initialState, onStateChange, onBackToHome, theme = "default" }: VisualizerWorkbenchProps) {
+  const isSpace = theme === "space";
   const [boardItems, setBoardItems] = useState<BoardItem[]>(() => cloneItems(initialState?.boardItems ?? []));
   const [annotations, setAnnotations] = useState<AnnotationItem[]>(() => cloneAnnotations(initialState?.annotations ?? []));
   const [canvasOffset, setCanvasOffset] = useState(() => initialState?.canvasOffset ?? { x: 80, y: 80 });
@@ -921,22 +924,30 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   // ─── Toolbar buttons style ────────────────────────────────────────────────
   const tbBtn = (active = false) =>
     `px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer border ${active ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-800"}`;
-  const chromeBtnBase = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
+  const chromeBtnBase = isSpace
+    ? "h-7 rounded-md border border-slate-500/35 bg-slate-900/70 px-2.5 text-xs font-medium text-slate-100 transition-colors hover:bg-slate-800/75 hover:border-slate-400/45 disabled:opacity-30 cursor-pointer"
+    : "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 disabled:opacity-30 cursor-pointer";
   const chromeBtn = (active = false) =>
-    `${chromeBtnBase} ${active ? "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300" : ""}`;
+    `${chromeBtnBase} ${active ? (isSpace ? "bg-sky-500/20 text-sky-100 border-sky-400/45 hover:bg-sky-500/30 hover:border-sky-300/55" : "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 hover:border-sky-300") : ""}`;
   const chromeLabel = "text-sm font-medium leading-none";
-  const chromeInput = "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
-  const chromePanel = "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
-  const chromeMenuItem = "w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50";
+  const chromeInput = isSpace
+    ? "h-7 rounded-md border border-slate-500/35 bg-slate-900/70 px-2.5 text-xs font-medium text-slate-100 outline-none focus:border-sky-400/55"
+    : "h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-300";
+  const chromePanel = isSpace
+    ? "rounded-lg border border-slate-500/35 bg-slate-950/65 p-2 shadow-sm"
+    : "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
+  const chromeMenuItem = isSpace
+    ? "w-full text-left px-3 py-2 text-slate-100 hover:bg-slate-800/70"
+    : "w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50";
   const dragHandleStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
     gap: 4,
     padding: "2px 7px",
     borderRadius: 999,
-    border: "1px solid #cbd5e1",
-    background: "rgba(255,255,255,0.94)",
-    color: "#475569",
+    border: isSpace ? "1px solid rgba(148, 163, 184, 0.35)" : "1px solid #cbd5e1",
+    background: isSpace ? "rgba(15,23,42,0.88)" : "rgba(255,255,255,0.94)",
+    color: isSpace ? "#cbd5e1" : "#475569",
     fontSize: 10,
     fontWeight: 700,
     letterSpacing: "0.02em",
@@ -945,19 +956,19 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
   };
 
   return (
-    <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
+    <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden", background: isSpace ? "#060d1b" : "#f8fafc", fontFamily: "var(--font-geist-sans), sans-serif" }}>
 
       {/* ── Toolbar ── */}
-      <div className="no-print flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 select-none bg-white shadow-sm flex-wrap" style={{ zIndex: 50 }}>
+      <div className={`no-print flex items-center gap-1.5 px-3 py-2 border-b select-none shadow-sm flex-wrap ${isSpace ? "border-slate-500/30 bg-slate-950/70" : "border-slate-200 bg-white"}`} style={{ zIndex: 50 }}>
         <button
           type="button"
           onClick={onBackToHome}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 transition-colors hover:bg-slate-50 hover:border-slate-300 cursor-pointer"
+          className={`flex items-center gap-2 rounded-xl border px-2.5 py-1 transition-colors cursor-pointer ${isSpace ? "border-slate-500/35 bg-slate-900/70 hover:bg-slate-800/75 hover:border-slate-400/45" : "border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300"}`}
           aria-label="Go back to home"
           title="Home"
         >
           {/* <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span> */}
-          <span className="text-base font-extrabold tracking-tight text-blue-900">fishbowl</span>
+          <span className={`text-base font-extrabold tracking-tight ${isSpace ? "text-sky-200" : "text-blue-900"}`}>fishbowl</span>
           {/* <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span> */}
         </button>
         <input
@@ -1055,7 +1066,8 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
           ref={canvasRef}
           className="flex-1 relative overflow-hidden"
           style={{
-            background: "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
+            backgroundImage: isSpace ? "radial-gradient(circle, rgba(148,163,184,0.35) 1px, transparent 1px)" : "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
+            backgroundColor: isSpace ? "#060d1b" : "#f8fafc",
             backgroundSize: "24px 24px",
             cursor: activeTool === "arrow" ? "crosshair" : activeTool === "text" ? "text" : dragState?.kind === "pan" ? "grabbing" : "default",
           }}

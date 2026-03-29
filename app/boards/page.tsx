@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "@/app/components/theme-provider";
 import VisualizerWorkbench, { PersistedBoardState } from "@/app/components/visualizer-workbench";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -50,6 +51,8 @@ export default function BoardsPage() {
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedHashRef = useRef<string>("");
   const uiButtonLabel = "text-sm font-medium leading-none";
+  const { theme } = useTheme();
+  const isSpace = theme === "space";
 
   const persistLocalDraft = useCallback((state: PersistedBoardState | null) => {
     if (typeof window === "undefined") return;
@@ -317,34 +320,37 @@ export default function BoardsPage() {
 
   if (view === "home") {
     return (
-      <main className="min-h-screen bg-slate-100">
-        <div className="mx-auto w-full max-w-6xl px-6 py-6">
+      <main className={`relative min-h-screen ${isSpace ? "bg-[#060d1b] text-slate-100" : "bg-slate-100"}`}>
+        {isSpace && (
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(56,189,248,0.2),transparent_55%),radial-gradient(900px_500px_at_85%_110%,rgba(59,130,246,0.16),transparent_60%),linear-gradient(180deg,#060d1b_0%,#0a1530_100%)]" />
+        )}
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Fishbowl Whiteboard</h1>
-              <p className="text-sm text-slate-500">{userEmail}</p>
+              <h1 className={`text-2xl font-semibold ${isSpace ? "text-slate-50" : "text-slate-900"}`}>Fishbowl Whiteboard</h1>
+              <p className={`text-sm ${isSpace ? "text-slate-300" : "text-slate-500"}`}>{userEmail}</p>
             </div>
             <button
               onClick={() => void logout()}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className={`rounded-md border px-3 py-1.5 text-sm font-medium cursor-pointer ${isSpace ? "border-slate-400/40 bg-slate-900/60 text-slate-100 hover:bg-slate-800/70" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}
             >
               <span className={uiButtonLabel}>Logout</span>
             </button>
           </div>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="text-sm font-medium text-slate-700 mb-3">Template</p>
+          <section className={`rounded-xl border p-4 ${isSpace ? "border-slate-500/30 bg-slate-950/40" : "border-slate-200 bg-white"}`}>
+            <p className={`mb-3 text-sm font-medium ${isSpace ? "text-slate-100" : "text-slate-700"}`}>Template</p>
             <div className="flex flex-wrap gap-3">
               <div className="w-40">
                 <button
                   onClick={() => void createBoard()}
                   disabled={busy}
-                  className="h-24 w-40 rounded-lg border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 text-4xl font-light disabled:opacity-50 cursor-pointer"
+                  className={`h-24 w-40 rounded-lg border text-4xl font-light disabled:opacity-50 cursor-pointer ${isSpace ? "border-slate-400/40 bg-slate-900/60 text-slate-100 hover:bg-slate-800/70" : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"}`}
                   aria-label="Create blank board"
                 >
                   +
                 </button>
-                <p className="mt-2 text-sm font-medium text-slate-700">Blank board</p>
+                <p className={`mt-2 text-sm font-medium ${isSpace ? "text-slate-200" : "text-slate-700"}`}>Blank board</p>
               </div>
             </div>
           </section>
@@ -355,21 +361,21 @@ export default function BoardsPage() {
             </div>
           )}
 
-          <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+          <section className={`mt-5 rounded-xl border p-4 ${isSpace ? "border-slate-500/30 bg-slate-950/40" : "border-slate-200 bg-white"}`}>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Boards</h2>
-              <span className="text-xs text-slate-500">{boards.length} total</span>
+              <h2 className={`text-lg font-semibold ${isSpace ? "text-slate-50" : "text-slate-900"}`}>Boards</h2>
+              <span className={`text-xs ${isSpace ? "text-slate-300" : "text-slate-500"}`}>{boards.length} total</span>
             </div>
 
             {boards.length === 0 ? (
-              <p className="text-sm text-slate-500">No boards yet. Create a blank board to get started.</p>
+              <p className={`text-sm ${isSpace ? "text-slate-300" : "text-slate-500"}`}>No boards yet. Create a blank board to get started.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {boards.map(board => (
-                  <div key={board.id} className="rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 hover:border-slate-300">
+                  <div key={board.id} className={`rounded-lg border p-3 transition-colors ${isSpace ? "border-slate-500/30 bg-slate-900/55 hover:bg-slate-800/65 hover:border-slate-400/40" : "border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300"}`}>
                     <button className="w-full text-left cursor-pointer" onClick={() => openBoard(board.id)}>
-                      <p className="text-sm font-medium text-slate-900 truncate">{board.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">Updated {new Date(board.updated_at).toLocaleString()}</p>
+                      <p className={`truncate text-sm font-medium ${isSpace ? "text-slate-100" : "text-slate-900"}`}>{board.name}</p>
+                      <p className={`mt-1 text-xs ${isSpace ? "text-slate-300" : "text-slate-500"}`}>Updated {new Date(board.updated_at).toLocaleString()}</p>
                     </button>
                     <div className="mt-3 flex justify-end">
                       <button
@@ -390,7 +396,7 @@ export default function BoardsPage() {
   }
 
   return (
-    <main className="h-screen bg-slate-100">
+    <main className={`h-screen ${isSpace ? "bg-[#060d1b]" : "bg-slate-100"}`}>
       <section className="h-full flex flex-col min-w-0">
         {error && (
           <div className="px-3 py-2 text-xs text-rose-700 bg-rose-50 border-b border-rose-200">
@@ -409,6 +415,7 @@ export default function BoardsPage() {
             initialState={workingState}
             onStateChange={handleWorkbenchStateChange}
             onBackToHome={() => setView("home")}
+            theme={theme}
           />
         ) : (
           <div className="flex-1 grid place-items-center text-sm text-slate-500">

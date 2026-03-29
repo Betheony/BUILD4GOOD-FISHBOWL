@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ type ArrowAnnotation = {
   x1: number; y1: number; x2: number; y2: number;
   label: string; selected: boolean;
   fromNodeId?: string; toNodeId?: string;
+  directed?: boolean;
 };
 type TextAnnotation = {
   id: string; kind: "text";
@@ -46,10 +47,11 @@ type TextAnnotation = {
 type AnnotationItem = ArrowAnnotation | TextAnnotation;
 
 type Tool = "select" | "arrow" | "text";
+type EdgeMode = "directed" | "undirected";
 type DragState =
   | { kind: "card"; id: string; isAnnotation: boolean; pointerOffsetX: number; pointerOffsetY: number }
   | { kind: "pan"; startClientX: number; startClientY: number; startOffsetX: number; startOffsetY: number }
-  | { kind: "arrow-draw"; startX: number; startY: number; currentX: number; currentY: number };
+  | { kind: "arrow-draw"; startX: number; startY: number; currentX: number; currentY: number; sourceNodeId?: string };
 
 type UndoSnapshot = { items: BoardItem[]; annotations: AnnotationItem[] };
 type HistoryEntry = { id: string; msg: string };
@@ -71,6 +73,7 @@ const cloneAnnotations = (anns: AnnotationItem[]): AnnotationItem[] => anns.map(
 
 const NODE_RADIUS = 32;
 const SNAP_RADIUS = 44;
+const EDGE_NODE_OVERLAP = 4;
 
 function findNearbyNode(x: number, y: number, items: BoardItem[]): GraphNode | null {
   for (const item of items) {
@@ -81,6 +84,35 @@ function findNearbyNode(x: number, y: number, items: BoardItem[]): GraphNode | n
   return null;
 }
 
+function getNodeCenter(node: GraphNode) {
+  return { x: node.position.x + NODE_RADIUS, y: node.position.y + NODE_RADIUS };
+}
+
+function getSegmentPoints(
+  start: BoardPosition,
+  end: BoardPosition,
+  startInset = 0,
+  endInset = 0,
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance < 0.001) {
+    return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+  }
+
+  const ux = dx / distance;
+  const uy = dy / distance;
+
+  return {
+    x1: start.x + ux * startInset,
+    y1: start.y + uy * startInset,
+    x2: end.x - ux * endInset,
+    y2: end.y - uy * endInset,
+  };
+}
+
 function buildAdjacency(items: BoardItem[], annotations: AnnotationItem[]): Record<string, string[]> {
   const adj: Record<string, string[]> = {};
   const nodeIds = new Set(items.filter(b => b.kind === "node").map(b => b.id));
@@ -89,7 +121,7 @@ function buildAdjacency(items: BoardItem[], annotations: AnnotationItem[]): Reco
     const ar = ann as ArrowAnnotation;
     if (ar.fromNodeId && ar.toNodeId && nodeIds.has(ar.fromNodeId) && nodeIds.has(ar.toNodeId)) {
       (adj[ar.fromNodeId] ??= []).push(ar.toNodeId);
-      (adj[ar.toNodeId] ??= []).push(ar.fromNodeId);
+      if (ar.directed === false) (adj[ar.toNodeId] ??= []).push(ar.fromNodeId);
     }
   }
   return adj;
@@ -121,8 +153,11 @@ export default function VisualizerWorkbench() {
   const [redoStack, setRedoStack] = useState<UndoSnapshot[]>([]);
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
   const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
+  const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const addBoardCountRef = useRef(0);
   const live = useRef({ zoom, canvasOffset, boardItems, annotations, activeTool, dragState });
   useEffect(() => { live.current = { zoom, canvasOffset, boardItems, annotations, activeTool, dragState }; });
 
@@ -165,7 +200,11 @@ export default function VisualizerWorkbench() {
   function addBoard(kind: StructureKind) {
     snapshot();
     const { canvasOffset: o, zoom: z } = live.current;
-    const pos = { x: (200 - o.x) / z + Math.random() * 60, y: (120 - o.y) / z + Math.random() * 60 };
+    const slot = addBoardCountRef.current++;
+    const pos = {
+      x: (200 - o.x) / z + (slot % 5) * 18,
+      y: (120 - o.y) / z + (Math.floor(slot / 5) % 4) * 18,
+    };
     let board: BoardItem;
     if (kind === "array") board = { id: uid(), kind, position: pos, label: "Array", cells: [], selectedCells: [] };
     else if (kind === "linkedlist") board = { id: uid(), kind, position: pos, label: "List", nodes: [], selectedNodes: [] };
@@ -307,6 +346,11 @@ export default function VisualizerWorkbench() {
     setBoardItems(p => p.map(b => b.id !== nid ? b : { ...b, label } as GraphNode));
   }
 
+  function getNodeById(id: string) {
+    const item = live.current.boardItems.find(b => b.id === id);
+    return item?.kind === "node" ? item as GraphNode : null;
+  }
+
   function runTraversal(startId: string, mode: "bfs" | "dfs") {
     const adj = buildAdjacency(live.current.boardItems, live.current.annotations);
     const visited = new Set<string>();
@@ -346,6 +390,37 @@ export default function VisualizerWorkbench() {
     log("✖ Removed annotation");
   }
 
+  function setGraphEdgeMode(nextMode: EdgeMode) {
+    setEdgeMode(nextMode);
+
+    const selectedGraphEdges = live.current.annotations.filter(
+      (ann): ann is ArrowAnnotation =>
+        ann.kind === "arrow" &&
+        ann.selected &&
+        !!ann.fromNodeId &&
+        !!ann.toNodeId,
+    );
+
+    if (!selectedGraphEdges.length) return;
+
+    snapshot();
+    setAnnotations(p =>
+      p.map(ann => {
+        if (
+          ann.kind !== "arrow" ||
+          !ann.selected ||
+          !ann.fromNodeId ||
+          !ann.toNodeId
+        ) {
+          return ann;
+        }
+
+        return { ...ann, directed: nextMode === "directed" };
+      }),
+    );
+    log(nextMode === "directed" ? "→ Selected graph edges set to directed" : "↔ Selected graph edges set to undirected");
+  }
+
   // ── Canvas interaction ─────────────────────────────────────────────────────
 
   const clientToCanvas = (cx: number, cy: number) => ({
@@ -360,6 +435,7 @@ export default function VisualizerWorkbench() {
 
     if (tool === "arrow") {
       const { x, y } = clientToCanvas(e.clientX, e.clientY);
+      setHoveredNodeId(null);
       setDragState({ kind: "arrow-draw", startX: x, startY: y, currentX: x, currentY: y });
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       return;
@@ -377,6 +453,17 @@ export default function VisualizerWorkbench() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
+  function handleNodeConnectionStart(e: React.PointerEvent<HTMLDivElement>, nodeId: string) {
+    if (live.current.activeTool !== "arrow") return;
+    const node = getNodeById(nodeId);
+    if (!node) return;
+    const { x, y } = getNodeCenter(node);
+    setSelectedBoardId(nodeId);
+    setHoveredNodeId(null);
+    setDragState({ kind: "arrow-draw", startX: x, startY: y, currentX: x, currentY: y, sourceNodeId: nodeId });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
   function handleCanvasMove(e: React.PointerEvent<HTMLDivElement>) {
     const ds = live.current.dragState;
     if (!ds) return;
@@ -384,6 +471,8 @@ export default function VisualizerWorkbench() {
       setCanvasOffset({ x: ds.startOffsetX + e.clientX - ds.startClientX, y: ds.startOffsetY + e.clientY - ds.startClientY });
     } else if (ds.kind === "arrow-draw") {
       const { x, y } = clientToCanvas(e.clientX, e.clientY);
+      const nearby = findNearbyNode(x, y, live.current.boardItems);
+      setHoveredNodeId(nearby && nearby.id !== ds.sourceNodeId ? nearby.id : null);
       setDragState({ ...ds, currentX: x, currentY: y });
     } else if (ds.kind === "card") {
       const { zoom: z, canvasOffset: o } = live.current;
@@ -402,7 +491,31 @@ export default function VisualizerWorkbench() {
     if (!ds) return;
     if (ds.kind === "arrow-draw") {
       const dx = ds.currentX - ds.startX, dy = ds.currentY - ds.startY;
-      if (Math.hypot(dx, dy) > 15) {
+      const dragDistance = Math.hypot(dx, dy);
+      if (ds.sourceNodeId) {
+        const fromNode = getNodeById(ds.sourceNodeId);
+        const toNode = hoveredNodeId ? getNodeById(hoveredNodeId) : findNearbyNode(ds.currentX, ds.currentY, live.current.boardItems);
+        if (fromNode && toNode && fromNode.id !== toNode.id) {
+          const start = getNodeCenter(fromNode);
+          const end = getNodeCenter(toNode);
+          snapshot();
+          const ann: ArrowAnnotation = {
+            id: uid(),
+            kind: "arrow",
+            x1: start.x,
+            y1: start.y,
+            x2: end.x,
+            y2: end.y,
+            label: "",
+            selected: false,
+            fromNodeId: fromNode.id,
+            toNodeId: toNode.id,
+            directed: edgeMode === "directed",
+          };
+          setAnnotations(p => [...p, ann]);
+          log(`${edgeMode === "directed" ? "→" : "↔"} Connected ${fromNode.label || "?"} ${edgeMode === "directed" ? "→" : "↔"} ${toNode.label || "?"}`);
+        }
+      } else if (dragDistance > 15) {
         const items = live.current.boardItems;
         const fromNode = findNearbyNode(ds.startX, ds.startY, items);
         const toNode = findNearbyNode(ds.currentX, ds.currentY, items);
@@ -415,10 +528,16 @@ export default function VisualizerWorkbench() {
           y2: toNode ? toNode.position.y + NODE_RADIUS : ds.currentY,
           label: "", selected: false,
           fromNodeId: fromNode?.id, toNodeId: toNode?.id,
+          directed: edgeMode === "directed",
         };
         setAnnotations(p => [...p, ann]);
-        log(fromNode && toNode ? `→ Connected ${fromNode.label || "?"} → ${toNode.label || "?"}` : "→ Drew arrow");
+        if (fromNode && toNode) {
+          log(`${edgeMode === "directed" ? "→" : "↔"} Connected ${fromNode.label || "?"} ${edgeMode === "directed" ? "→" : "↔"} ${toNode.label || "?"}`);
+        } else {
+          log(edgeMode === "directed" ? "→ Drew arrow" : "↔ Drew edge");
+        }
       }
+      setHoveredNodeId(null);
       setActiveTool("select");
     }
     setDragState(null);
@@ -449,14 +568,16 @@ export default function VisualizerWorkbench() {
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
 
+  const handleWindowKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.shiftKey && e.key === "z"))) { e.preventDefault(); redo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "=") { e.preventDefault(); setZoom(z => Math.min(3, z * 1.1)); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); setZoom(z => Math.max(0.2, z * 0.909)); }
+    if (e.key === "Escape") setActiveTool("select");
+  });
+
   useEffect(() => {
-    const fn = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
-      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.shiftKey && e.key === "z"))) { e.preventDefault(); redo(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === "=") { e.preventDefault(); setZoom(z => Math.min(3, z * 1.1)); }
-      if ((e.ctrlKey || e.metaKey) && e.key === "-") { e.preventDefault(); setZoom(z => Math.max(0.2, z * 0.909)); }
-      if (e.key === "Escape") setActiveTool("select");
-    };
+    const fn = (e: KeyboardEvent) => handleWindowKeyDown(e);
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
   }, []);
@@ -484,6 +605,10 @@ export default function VisualizerWorkbench() {
 
   const previewArrow = dragState?.kind === "arrow-draw" ? dragState : null;
   const connectedNodeIds = getConnectedNodeIds(annotations);
+  const selectedNode =
+    selectedBoardId && boardItems.find(b => b.id === selectedBoardId)?.kind === "node"
+      ? boardItems.find(b => b.id === selectedBoardId) as GraphNode
+      : null;
 
   // Highlight colors for graph traversal
   const nodeHighlightBg = (h?: string) => h === "current" ? "#fbbf24" : h === "visited" ? "#86efac" : "white";
@@ -518,6 +643,30 @@ export default function VisualizerWorkbench() {
             {t === "select" ? "↖ Select" : t === "arrow" ? "→ Arrow" : "T Text"}
           </button>
         ))}
+
+        <div className="w-px h-5 bg-slate-200 mx-1" />
+
+        <span className="text-xs text-slate-400">Edges:</span>
+        <button onClick={() => setGraphEdgeMode("directed")} className={tbBtn(edgeMode === "directed")}>A → B</button>
+        <button onClick={() => setGraphEdgeMode("undirected")} className={tbBtn(edgeMode === "undirected")}>A ↔ B</button>
+
+        {activeTool === "arrow" && !selectedNode && (
+          <span className="text-xs text-slate-500 ml-1">
+            Select a node, then drag to another node
+          </span>
+        )}
+
+        {activeTool === "arrow" && selectedNode && (
+          <span className="text-xs text-violet-600 font-medium ml-1">
+            Drag from {selectedNode.label || "selected node"} to connect
+          </span>
+        )}
+
+        <div className="w-px h-5 bg-slate-200 mx-1" />
+
+        {/* Undo/Redo */}
+        <button onClick={undo} disabled={!undoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Z">↩</button>
+        <button onClick={redo} disabled={!redoStack.length} className={`${tbBtn()} disabled:opacity-30`} title="Ctrl+Y">↪</button>
 
         <div className="w-px h-5 bg-slate-200 mx-1" />
 
@@ -588,28 +737,52 @@ export default function VisualizerWorkbench() {
                 const isGraph = !!(ar.fromNodeId || ar.toNodeId);
                 const fn = ar.fromNodeId ? boardItems.find(b => b.id === ar.fromNodeId) as GraphNode | undefined : undefined;
                 const tn = ar.toNodeId ? boardItems.find(b => b.id === ar.toNodeId) as GraphNode | undefined : undefined;
-                const x1 = fn ? fn.position.x + NODE_RADIUS : ar.x1;
-                const y1 = fn ? fn.position.y + NODE_RADIUS : ar.y1;
-                const x2 = tn ? tn.position.x + NODE_RADIUS : ar.x2;
-                const y2 = tn ? tn.position.y + NODE_RADIUS : ar.y2;
+                const start = fn ? getNodeCenter(fn) : { x: ar.x1, y: ar.y1 };
+                const end = tn ? getNodeCenter(tn) : { x: ar.x2, y: ar.y2 };
+                const segment = getSegmentPoints(
+                  start,
+                  end,
+                  fn ? NODE_RADIUS - EDGE_NODE_OVERLAP : 0,
+                  tn ? NODE_RADIUS - EDGE_NODE_OVERLAP : 0,
+                );
                 const color = ar.selected ? "#f97316" : isGraph ? "#8b5cf6" : "#64748b";
                 const marker = ar.selected ? "url(#ah-sel)" : isGraph ? "url(#ah-graph)" : "url(#ah)";
                 return (
                   <g key={ar.id} style={{ pointerEvents: "stroke" }} data-annotation
-                    onClick={() => setAnnotations(p => p.map(x => x.id === ar.id ? { ...x, selected: !ar.selected } : x))}
+                    onClick={() => {
+                      setAnnotations(p => p.map(x => x.id === ar.id ? { ...x, selected: !ar.selected } : x));
+                      setEdgeMode(ar.directed === false ? "undirected" : "directed");
+                    }}
                     onDoubleClick={() => removeAnnotation(ar.id)}>
                     {/* Wider invisible hit area */}
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={12} style={{ pointerEvents: "stroke" }} />
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={ar.selected ? 2.5 : 1.8} markerEnd={marker} style={{ animation: "arrowDraw 0.3s ease forwards" }} strokeDasharray="200" strokeDashoffset="0" />
-                    {ar.label && <text x={(x1+x2)/2} y={(y1+y2)/2 - 6} fill={color} fontSize={11} textAnchor="middle">{ar.label}</text>}
+                    <line x1={segment.x1} y1={segment.y1} x2={segment.x2} y2={segment.y2} stroke="transparent" strokeWidth={12} style={{ pointerEvents: "stroke" }} />
+                    <line
+                      x1={segment.x1}
+                      y1={segment.y1}
+                      x2={segment.x2}
+                      y2={segment.y2}
+                      stroke={color}
+                      strokeWidth={ar.selected ? 2.5 : 1.8}
+                      markerEnd={ar.directed === false ? undefined : marker}
+                    />
+                    {ar.label && <text x={(segment.x1 + segment.x2) / 2} y={(segment.y1 + segment.y2) / 2 - 6} fill={color} fontSize={11} textAnchor="middle">{ar.label}</text>}
                   </g>
                 );
               })}
 
-              {previewArrow && (
-                <line x1={previewArrow.startX} y1={previewArrow.startY} x2={previewArrow.currentX} y2={previewArrow.currentY}
-                  stroke="#64748b" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.6} markerEnd="url(#ah)" />
-              )}
+              {previewArrow && (() => {
+                const previewSegment = getSegmentPoints(
+                  { x: previewArrow.startX, y: previewArrow.startY },
+                  { x: previewArrow.currentX, y: previewArrow.currentY },
+                  previewArrow.sourceNodeId ? NODE_RADIUS - EDGE_NODE_OVERLAP : 0,
+                  hoveredNodeId ? NODE_RADIUS - EDGE_NODE_OVERLAP : 0,
+                );
+
+                return (
+                  <line x1={previewSegment.x1} y1={previewSegment.y1} x2={previewSegment.x2} y2={previewSegment.y2}
+                    stroke="#64748b" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.7} markerEnd={edgeMode === "directed" ? "url(#ah)" : undefined} />
+                );
+              })()}
             </svg>
 
             {/* ── Array boards ── */}
@@ -804,12 +977,22 @@ export default function VisualizerWorkbench() {
             {boardItems.filter(b => b.kind === "node").map(item => {
               const nb = item as GraphNode;
               const isConnected = connectedNodeIds.has(nb.id);
+              const isConnectionTarget = hoveredNodeId === nb.id;
+              const isConnectionSource = previewArrow?.sourceNodeId === nb.id;
               const bg = nodeHighlightBg(nb.highlight);
               const border = nodeHighlightBorder(nb.highlight);
               return (
                 <div key={nb.id} data-card
                   style={{ position: "absolute", left: nb.position.x, top: nb.position.y, userSelect: "none", animation: "fadeSlideIn 0.2s ease" }}
-                  onPointerDown={e => { if ((e.target as HTMLElement).tagName !== "INPUT") { setSelectedBoardId(nb.id); handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y); } }}
+                  onPointerDown={e => {
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    if (live.current.activeTool === "arrow") {
+                      handleNodeConnectionStart(e, nb.id);
+                      return;
+                    }
+                    setSelectedBoardId(nb.id);
+                    handleCardDragStart(e, nb.id, false, nb.position.x, nb.position.y);
+                  }}
                   onDoubleClick={() => removeBoard(nb.id)}
                   onClick={() => setSelectedBoardId(nb.id)}
                   title="Double-click to remove"
@@ -817,9 +1000,15 @@ export default function VisualizerWorkbench() {
                   <div style={{
                     width: NODE_RADIUS * 2, height: NODE_RADIUS * 2, borderRadius: "50%",
                     background: bg, border: `2px solid ${border}`,
-                    boxShadow: isConnected ? `0 0 0 3px ${border}33` : "0 2px 8px rgba(0,0,0,0.1)",
+                    boxShadow: isConnectionTarget
+                      ? "0 0 0 6px rgba(34, 197, 94, 0.22), 0 0 24px rgba(34, 197, 94, 0.35)"
+                      : isConnectionSource
+                        ? "0 0 0 6px rgba(139, 92, 246, 0.18), 0 0 20px rgba(139, 92, 246, 0.28)"
+                        : isConnected
+                          ? `0 0 0 3px ${border}33`
+                          : "0 2px 8px rgba(0,0,0,0.1)",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "background 0.3s, border-color 0.3s",
+                    transition: "background 0.2s, border-color 0.2s, box-shadow 0.2s",
                   }}>
                     <input value={nb.label} onChange={e => nodeUpdateLabel(nb.id, e.target.value)}
                       onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}

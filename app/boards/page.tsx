@@ -16,7 +16,7 @@ type WhiteboardRow = {
 };
 
 const LOCAL_DRAFT_KEY = "fishbowl_local_draft_v1";
-const TEMP_AUTH_BYPASS = true;
+const TEMP_AUTH_BYPASS = false;
 
 function emptyBoardState(name = "Untitled Whiteboard"): PersistedBoardState {
   return {
@@ -346,7 +346,7 @@ export default function BoardsPage() {
         <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h1 className={`text-2xl font-semibold ${isSpace ? "text-slate-50" : "text-slate-900"}`}>Fishbowl Whiteboard</h1>
+              <h1 className={`text-2xl font-semibold ${isSpace ? "text-slate-50" : "text-slate-900"}`}>Rippleboard</h1>
               <p className={`text-sm ${isSpace ? "text-slate-300" : "text-slate-500"}`}>{userEmail}</p>
             </div>
             <button

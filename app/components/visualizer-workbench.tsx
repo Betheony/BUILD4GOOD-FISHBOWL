@@ -1175,7 +1175,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
           title="Home"
         >
           {/* <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-[11px] font-black text-white">f</span> */}
-          <span className={`text-base font-extrabold tracking-tight ${isSpace ? "text-sky-200" : "text-blue-900"}`}>fishbowl</span>
+          <span className={`text-base font-extrabold tracking-tight ${isSpace ? "text-sky-200" : "text-blue-900"}`}>rippleboard</span>
           {/* <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">board</span> */}
         </button>
         <input

@@ -58,8 +58,13 @@ type HistoryEntry = { id: string; msg: string };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-let _uid = 0;
-const uid = () => `id-${++_uid}`;
+const uid = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
 function cloneItems(items: BoardItem[]): BoardItem[] {
   return items.map(item => {
@@ -74,6 +79,87 @@ const cloneAnnotations = (anns: AnnotationItem[]): AnnotationItem[] => anns.map(
 const NODE_RADIUS = 32;
 const SNAP_RADIUS = 44;
 const EDGE_NODE_OVERLAP = 4;
+const ADD_PLACEMENT_STEP = 28;
+const ADD_PLACEMENT_PADDING = 36;
+
+function getBoardBounds(item: BoardItem) {
+  if (item.kind === "array") {
+    const cellCount = Math.max(item.cells.length, 1);
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: cellCount * 42 + 40,
+      height: 96,
+    };
+  }
+
+  if (item.kind === "linkedlist") {
+    const nodeCount = Math.max(item.nodes.length, 1);
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: 110 + nodeCount * 48,
+      height: 92,
+    };
+  }
+
+  if (item.kind === "hashmap") {
+    return {
+      x: item.position.x,
+      y: item.position.y - 32,
+      width: 220,
+      height: 180,
+    };
+  }
+
+  return {
+    x: item.position.x - 10,
+    y: item.position.y - 34,
+    width: NODE_RADIUS * 2 + 20,
+    height: NODE_RADIUS * 2 + 56,
+  };
+}
+
+function boundsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+function hasMatchingGraphEdge(
+  annotations: AnnotationItem[],
+  fromNodeId: string,
+  toNodeId: string,
+  directed: boolean,
+) {
+  return annotations.some(annotation => {
+    if (annotation.kind !== "arrow" || !annotation.fromNodeId || !annotation.toNodeId) {
+      return false;
+    }
+
+    if (directed || annotation.directed !== false) {
+      return (
+        annotation.fromNodeId === fromNodeId &&
+        annotation.toNodeId === toNodeId &&
+        (annotation.directed !== false) === directed
+      );
+    }
+
+    return (
+      annotation.directed === false &&
+      (
+        (annotation.fromNodeId === fromNodeId && annotation.toNodeId === toNodeId) ||
+        (annotation.fromNodeId === toNodeId && annotation.toNodeId === fromNodeId)
+      )
+    );
+  });
+}
 
 function findNearbyNode(x: number, y: number, items: BoardItem[]): GraphNode | null {
   for (const item of items) {
@@ -201,15 +287,57 @@ export default function VisualizerWorkbench() {
     snapshot();
     const { canvasOffset: o, zoom: z } = live.current;
     const slot = addBoardCountRef.current++;
-    const pos = {
+    const basePos = {
       x: (200 - o.x) / z + (slot % 5) * 18,
       y: (120 - o.y) / z + (Math.floor(slot / 5) % 4) * 18,
     };
     let board: BoardItem;
-    if (kind === "array") board = { id: uid(), kind, position: pos, label: "Array", cells: [], selectedCells: [] };
-    else if (kind === "linkedlist") board = { id: uid(), kind, position: pos, label: "List", nodes: [], selectedNodes: [] };
-    else if (kind === "hashmap") board = { id: uid(), kind, position: pos, label: "HashMap", entries: [], keyDraft: "", valueDraft: "" };
-    else board = { id: uid(), kind: "node", position: pos, label: "" };
+    if (kind === "array") board = {
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "Array",
+      cells: [{ id: uid(), value: "" }],
+      selectedCells: [],
+    };
+    else if (kind === "linkedlist") board = {
+      id: uid(),
+      kind,
+      position: basePos,
+      label: "List",
+      nodes: [{ id: uid(), value: "" }],
+      selectedNodes: [],
+    };
+    else if (kind === "hashmap") board = { id: uid(), kind, position: basePos, label: "HashMap", entries: [], keyDraft: "", valueDraft: "" };
+    else board = { id: uid(), kind: "node", position: basePos, label: "" };
+
+    const occupiedBounds = live.current.boardItems.map(item => getBoardBounds(item));
+    const boardBounds = getBoardBounds(board);
+    let resolvedPosition = basePos;
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const ring = Math.floor(attempt / 12);
+      const offsetX = ((attempt % 6) - 2.5) * ADD_PLACEMENT_STEP;
+      const offsetY = (Math.floor((attempt % 12) / 6) * 2 - 1) * ring * ADD_PLACEMENT_STEP;
+      const candidate = {
+        x: basePos.x + offsetX,
+        y: basePos.y + offsetY,
+      };
+      const candidateBounds = {
+        ...boardBounds,
+        x: candidate.x + (boardBounds.x - basePos.x) - ADD_PLACEMENT_PADDING,
+        y: candidate.y + (boardBounds.y - basePos.y) - ADD_PLACEMENT_PADDING,
+        width: boardBounds.width + ADD_PLACEMENT_PADDING * 2,
+        height: boardBounds.height + ADD_PLACEMENT_PADDING * 2,
+      };
+
+      if (!occupiedBounds.some(bounds => boundsOverlap(candidateBounds, bounds))) {
+        resolvedPosition = candidate;
+        break;
+      }
+    }
+
+    board = { ...board, position: resolvedPosition } as BoardItem;
     setBoardItems(p => [...p, board]);
     log(`➕ Added ${kind}`);
   }
@@ -501,6 +629,13 @@ export default function VisualizerWorkbench() {
         const fromNode = getNodeById(ds.sourceNodeId);
         const toNode = hoveredNodeId ? getNodeById(hoveredNodeId) : findNearbyNode(ds.currentX, ds.currentY, live.current.boardItems);
         if (fromNode && toNode && fromNode.id !== toNode.id) {
+          const isDirected = edgeMode === "directed";
+          if (hasMatchingGraphEdge(live.current.annotations, fromNode.id, toNode.id, isDirected)) {
+            log(isDirected ? "↺ Edge already exists" : "↺ Undirected edge already exists");
+            setHoveredNodeId(null);
+            setDragState(null);
+            return;
+          }
           const start = getNodeCenter(fromNode);
           const end = getNodeCenter(toNode);
           snapshot();
@@ -515,10 +650,10 @@ export default function VisualizerWorkbench() {
             selected: false,
             fromNodeId: fromNode.id,
             toNodeId: toNode.id,
-            directed: edgeMode === "directed",
+            directed: isDirected,
           };
           setAnnotations(p => [...p, ann]);
-          log(`${edgeMode === "directed" ? "→" : "↔"} Connected ${fromNode.label || "?"} ${edgeMode === "directed" ? "→" : "↔"} ${toNode.label || "?"}`);
+          log(`${isDirected ? "→" : "↔"} Connected ${fromNode.label || "?"} ${isDirected ? "→" : "↔"} ${toNode.label || "?"}`);
         }
       } else if (dragDistance > 15) {
         const items = live.current.boardItems;
@@ -543,7 +678,6 @@ export default function VisualizerWorkbench() {
         }
       }
       setHoveredNodeId(null);
-      setActiveTool("select");
     }
     setDragState(null);
   }
@@ -920,6 +1054,27 @@ export default function VisualizerWorkbench() {
                   </div>
                   {/* Nodes row */}
                   <div className="flex items-center gap-0" onDoubleClick={() => removeBoard(ll.id)}>
+                    <div
+                      style={{
+                        padding: "0 10px",
+                        height: 28,
+                        borderRadius: 999,
+                        border: "1.5px solid #4ade80",
+                        background: "#f0fdf4",
+                        color: "#15803d",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginRight: 6,
+                        userSelect: "none",
+                      }}
+                      title="Linked list head"
+                    >
+                      Head
+                    </div>
+                    <span style={{ fontSize: 14, color: "#86efac", margin: "0 4px 0 0", userSelect: "none" }}>→</span>
                     {ll.nodes.map((node, idx) => {
                       const sel = ll.selectedNodes.includes(node.id);
                       let anim: React.CSSProperties = {};

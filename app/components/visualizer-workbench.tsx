@@ -937,8 +937,26 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
     ? "rounded-lg border border-slate-500/35 bg-slate-950/65 p-2 shadow-sm"
     : "rounded-lg border border-slate-200 bg-white p-2 shadow-sm";
   const chromeMenuItem = isSpace
-    ? "w-full text-left px-3 py-2 text-slate-100 hover:bg-slate-800/70"
-    : "w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50";
+    ? "w-full cursor-pointer text-left px-3 py-2 text-slate-100 transition-colors hover:bg-slate-800/70"
+    : "w-full cursor-pointer text-left px-3 py-2 text-slate-700 transition-colors hover:bg-slate-50";
+  const chromeMenu = isSpace
+    ? "absolute right-0 mt-1 w-40 overflow-hidden rounded-md border border-slate-500/35 bg-slate-900/95 shadow-lg backdrop-blur-sm z-50"
+    : "absolute right-0 mt-1 w-40 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg z-50";
+  const chromeMenuDivider = isSpace
+    ? "divide-y divide-slate-500/30"
+    : "divide-y divide-slate-200";
+  const activityPanel = isSpace
+    ? "no-print flex flex-col border-l border-slate-500/30 bg-slate-950/70"
+    : "no-print flex flex-col border-l border-slate-200 bg-white";
+  const activityHeader = isSpace
+    ? "px-3 py-2 text-xs font-semibold text-slate-200 border-b border-slate-500/30 flex items-center justify-between"
+    : "px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between";
+  const activityEmpty = isSpace
+    ? "text-xs text-slate-400 mt-3 text-center"
+    : "text-xs text-slate-400 mt-3 text-center";
+  const activityItem = isSpace
+    ? "text-xs py-1 px-2 text-slate-200 leading-5"
+    : "text-xs py-1 px-2 text-slate-600 leading-5";
   const dragHandleStyle: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -1040,7 +1058,7 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
             <span className={chromeLabel}>Export</span>
           </button>
           {showExportMenu && (
-            <div className="absolute right-0 mt-1 w-40 rounded-md border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
+            <div className={`${chromeMenu} ${chromeMenuDivider}`}>
               <button
                 onClick={() => { setShowExportMenu(false); exportPDF(); }}
                 className={chromeMenuItem}
@@ -1704,15 +1722,15 @@ export default function VisualizerWorkbench({ initialState, onStateChange, onBac
 
         {/* ── Activity sidebar ── */}
         {showHistory && (
-          <div className="no-print flex flex-col border-l border-slate-200 bg-white" style={{ width: 200, overflow: "hidden" }}>
-            <div className="px-3 py-2 text-xs font-semibold text-slate-500 border-b border-slate-100 flex items-center justify-between">
+          <div className={activityPanel} style={{ width: 200, overflow: "hidden" }}>
+            <div className={activityHeader}>
               <span>Activity</span>
               <button onClick={() => setHistory([])} className={chromeBtn()}><span className={chromeLabel}>Clear</span></button>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1" style={{ scrollbarWidth: "thin" }}>
-              {history.length === 0 && <p className="text-xs text-slate-400 mt-3 text-center">No activity yet</p>}
+              {history.length === 0 && <p className={activityEmpty}>No activity yet</p>}
               {history.map(e => (
-                <div key={e.id} className="text-xs py-1 px-2 text-slate-600 leading-5" style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
+                <div key={e.id} className={activityItem} style={{ animation: "fadeSlideIn 0.15s ease" }}>{e.msg}</div>
               ))}
             </div>
           </div>

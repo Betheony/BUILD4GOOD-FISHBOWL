@@ -155,6 +155,7 @@ export default function VisualizerWorkbench() {
   const [whiteboardName, setWhiteboardName] = useState("Untitled Whiteboard");
   const [edgeMode, setEdgeMode] = useState<EdgeMode>("directed");
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const addBoardCountRef = useRef(0);
@@ -601,6 +602,21 @@ export default function VisualizerWorkbench() {
     setTimeout(() => { setZoom(sz); setCanvasOffset(so); }, 800);
   }
 
+  async function exportImage() {
+    if (!canvasRef.current) return;
+    const { toPng } = await import("html-to-image");
+    const dataUrl = await toPng(canvasRef.current, {
+      backgroundColor: "#f8fafc",
+      pixelRatio: 2,
+      cacheBust: true,
+    });
+    const link = document.createElement("a");
+    const safeName = whiteboardName.trim().replace(/\s+/g, "-").toLowerCase() || "whiteboard";
+    link.download = `${safeName}.png`;
+    link.href = dataUrl;
+    link.click();
+  }
+
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const previewArrow = dragState?.kind === "arrow-draw" ? dragState : null;
@@ -678,7 +694,7 @@ export default function VisualizerWorkbench() {
 
         <div className="flex-1" />
 
-        {/* Activity toggle + PDF */}
+        {/* Activity + Export */}
         <button
           onClick={() => setShowHistory(v => !v)}
           className={tbBtn(showHistory)}
@@ -689,7 +705,35 @@ export default function VisualizerWorkbench() {
             <path d="M2 3.25h10M2 7h10M2 10.75h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
         </button>
-        <button onClick={exportPDF} className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors">⬇ PDF</button>
+        <div className="relative">
+          <button
+            onClick={() => setShowExportMenu(v => !v)}
+            title="Export this board"
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="inline-block mr-1 -mt-[1px]" aria-hidden="true">
+              <path d="M7 1.5v7M4.5 6L7 8.5 9.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 10.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            
+          </button>
+          {showExportMenu && (
+            <div className="absolute right-0 mt-1 w-40 rounded-md border border-slate-200 bg-white shadow-lg z-50 overflow-hidden">
+              <button
+                onClick={() => { setShowExportMenu(false); exportPDF(); }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Save as PDF
+              </button>
+              <button
+                onClick={() => { setShowExportMenu(false); void exportImage(); }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Export as image
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Body ── */}
